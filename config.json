@@ -1,0 +1,15 @@
+{
+  "api_key": "sk-7d2a561839574a19823228d28ee3b355",
+  "base_url": "https://api.deepseek.com",
+  "model": "deepseek-v4-flash",
+  "utils_api_key": "",
+  "utils_base_url": "https://api.siliconflow.cn/v1",
+  "utils_model": "",
+  "relations_api_key": "",
+  "relations_base_url": "https://api.deepseek.com",
+  "relations_model": "",
+  "base_path": "E:\\SteamLibrary\\steamapps\\common\\Mount & Blade II Bannerlord\\Modules\\AIInfluence\\save_data",
+  "analysis_interval_days": 7,
+  "max_cost_usd": 1,
+  "heartbeat_interval": 360
+}

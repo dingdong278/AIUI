@@ -1,0 +1,25 @@
+{
+  "nodes": [
+    {"id": "eddard_stark", "name": "艾德·史塔克", "group": "史塔克"},
+    {"id": "catelyn_stark", "name": "凯特琳·史塔克", "group": "史塔克"},
+    {"id": "robb_stark", "name": "罗柏·史塔克", "group": "史塔克"},
+    {"id": "jon_snow", "name": "琼恩·雪诺", "group": "史塔克"},
+    {"id": "robert_baratheon", "name": "劳勃·拜拉席恩", "group": "拜拉席恩"},
+    {"id": "cersei_lannister", "name": "瑟曦·兰尼斯特", "group": "兰尼斯特"},
+    {"id": "jaime_lannister", "name": "詹姆·兰尼斯特", "group": "兰尼斯特"},
+    {"id": "tyrion_lannister", "name": "提利昂·兰尼斯特", "group": "兰尼斯特"},
+    {"id": "tywin_lannister", "name": "泰温·兰尼斯特", "group": "兰尼斯特"},
+    {"id": "daenerys_targaryen", "name": "丹妮莉丝·坦格利安", "group": "坦格利安"}
+  ],
+  "links": [
+    {"source": "eddard_stark", "target": "catelyn_stark", "label": "夫妻", "value": 1},
+    {"source": "eddard_stark", "target": "robb_stark", "label": "父子", "value": 1},
+    {"source": "eddard_stark", "target": "jon_snow", "label": "父(舅)/子", "value": 1},
+    {"source": "eddard_stark", "target": "robert_baratheon", "label": "挚友", "value": 1},
+    {"source": "robert_baratheon", "target": "cersei_lannister", "label": "夫妻", "value": 1},
+    {"source": "cersei_lannister", "target": "jaime_lannister", "label": "姐弟/恋人", "value": 1},
+    {"source": "tywin_lannister", "target": "cersei_lannister", "label": "父女", "value": 1},
+    {"source": "tywin_lannister", "target": "jaime_lannister", "label": "父子", "value": 1},
+    {"source": "tywin_lannister", "target": "tyrion_lannister", "label": "父子", "value": 1}
+  ]
+}
