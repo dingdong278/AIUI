@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { Globe, ScrollText, Flag, Swords, Castle, LayoutDashboard, Loader, Play, Settings } from "lucide-react";
-import ApiSettingsModal from "./ApiSettingsModal";
+import { Globe, ScrollText, Flag, Swords, Castle, LayoutDashboard, Loader, Play } from "lucide-react";
 
 export default function RealmStatusView() {
   const [reports, setReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
   const fetchData = async () => {
@@ -64,13 +62,6 @@ export default function RealmStatusView() {
               {loading ? <Loader className="animate-spin" size={16} /> : <Play size={16} />} 
               {loading ? "史官撰写中..." : "命史官推演"}
             </button>
-            <button
-              onClick={() => setSettingsOpen(true)}
-              className="p-1.5 border border-stone-300 text-stone-600 hover:bg-stone-200 bg-white rounded-lg transition-colors"
-              title="设置专属史官API"
-            >
-              <Settings size={18} />
-            </button>
           </div>
         </div>
 
@@ -107,27 +98,6 @@ export default function RealmStatusView() {
         </div>
       </div>
       
-      <ApiSettingsModal
-        isOpen={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        featureKey="realm"
-        title="史官观测 (Realm Chronicles)"
-        defaultPrompt={`你是一位撰写《维斯特洛纪事》的学士。请根据下方提供的【最近发生的世界事件日志】，用充满史诗和奇幻学术风格的口吻，生成 2 - 3 条宏观世界局势总结汇报。
-必须以强类型的 JSON 数组格式返回，必须符合如下结构，不要包含多余文本：
-{
-  "reports": [
-    {
-      "date": "如: 几天前 / 299年月",
-      "title": "中文标题记录",
-      "content": "记录的详细内容(描述生动有画面感，包含不同阵营动向)",
-      "type": "war" (可选 war/politics/other)
-    }
-  ]
-}
-
-【最近的世界事件如下】:
-{recent_events}`}
-      />
     </div>
   );
 }

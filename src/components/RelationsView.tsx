@@ -1,8 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Loader, Users, Search, Plus, Settings, X, ArrowLeft } from "lucide-react";
+import { Loader, Users, Search, Plus, X } from "lucide-react";
 import * as d3 from "d3";
-import ApiSettingsModal from "./ApiSettingsModal";
-import CharacterDetail from "./CharacterDetailView";
 
 export default function RelationsView() {
   const [data, setData] = useState<{ nodes: any[]; links: any[] } | null>(null);
@@ -12,6 +10,7 @@ export default function RelationsView() {
   const [errorMsg, setErrorMsg] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedNode, setSelectedNode] = useState<any>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -122,9 +121,7 @@ export default function RelationsView() {
         .attr("fill", (d: any) => color(d.group))
         .attr("cursor", "pointer")
         .on("click", (event, d: any) => {
-           // Provide the Chinese full name (d.name) or fallback to ID, as server fuzzy matching checks both
-           const searchKey = (d.name || d.id).replace(/\s*\(.*?\)/g, "").trim();
-           setSelectedId(searchKey);
+           setSelectedNode(d);
         })
         .call(
           d3
@@ -185,20 +182,9 @@ export default function RelationsView() {
 
   if (loading && !data) {
     return (
-      <div className="flex justify-center items-center h-64 text-stone-400">
-        <Loader className="animate-spin mr-2" /> 研读古老卷宗中的纠葛...
+      <div className="flex justify-center items-center h-64 text-stone-400 font-serif">
+        <Loader className="animate-spin mr-2" /> 研读古老卷宗中的宿命纠葛...
       </div>
-    );
-  }
-
-  if (selectedId) {
-    return (
-       <div className="animate-in fade-in slide-in-from-right-4 duration-300 h-full max-w-6xl mx-auto pb-12 flex flex-col h-[calc(100vh-80px)]">
-          <CharacterDetail 
-             id={selectedId} 
-             onBack={() => setSelectedId(null)} 
-          />
-       </div>
     );
   }
 
@@ -207,8 +193,8 @@ export default function RelationsView() {
       <div className="flex justify-between items-end border-b border-stone-200 pb-4">
         <div>
           <h2 className="text-xl font-display font-bold text-stone-800 flex items-center">
-            <Users className="mr-2 text-indigo-600" />
-            权力之网：原著角色羁绊图
+            <Users className="mr-2 text-stone-700" />
+            权力之网：冰火羁绊图谱
           </h2>
           <p className="text-sm text-stone-500 mt-1 font-serif">
             通过《冰与火之歌》原著考据生成的核心人物关系网络，支持缩放拖拽。
@@ -224,59 +210,75 @@ export default function RelationsView() {
               value={searchName}
               onChange={(e) => setSearchName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}
-              placeholder="输入原著角色名..."
-              className="pl-8 pr-3 py-1.5 w-48 text-sm bg-white border border-stone-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 font-sans"
+              placeholder="输入冰火原著角色名..."
+              className="pl-8 pr-3 py-1.5 w-56 text-sm bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-stone-500 font-sans shadow-sm"
             />
           </div>
           <button 
             onClick={handleGenerate}
             disabled={generating || !searchName.trim()}
-            className="flex items-center px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded transition-colors disabled:opacity-50"
+            className="flex items-center px-4 py-1.5 bg-stone-800 hover:bg-stone-700 text-stone-100 text-sm rounded-lg transition-colors disabled:opacity-50 border border-stone-900 shadow-sm"
           >
-            {generating ? <Loader className="animate-spin mr-1" size={14} /> : <Plus className="mr-1" size={14} />}
+            {generating ? <Loader className="animate-spin mr-1.5" size={14} /> : <Plus className="mr-1.5" size={14} />}
             挖掘并接入网络
-          </button>
-          <button
-            onClick={() => setSettingsOpen(true)}
-            className="p-1.5 ml-2 text-stone-500 hover:text-stone-800 hover:bg-stone-200 rounded transition-colors"
-            title="设置专用的生成模型(API)"
-          >
-            <Settings size={18} />
           </button>
         </div>
       </div>
 
-      <div className="flex-1 bg-stone-50 border border-stone-200 rounded-lg shadow-inner overflow-hidden relative" ref={containerRef}>
-        {!data || !data.nodes || data.nodes.length === 0 ? (
-          <div className="absolute inset-0 flex items-center justify-center text-stone-400">
-            暂无原著人物关系数据，请在上方输入角色名并点击挖掘
-          </div>
-        ) : (
-          <svg className="w-full h-full" ref={svgRef}></svg>
-        )}
-        {generating && (
-          <div className="absolute inset-0 bg-stone-100/50 backdrop-blur-sm flex items-center justify-center flex-col z-10 transition-opacity">
-            <Loader className="animate-spin text-indigo-600 mb-2" size={32} />
-            <p className="text-indigo-800 font-medium text-sm font-display tracking-widest shadow-white drop-shadow-md">查阅大学士编年史...</p>
+      <div className="flex-1 flex gap-4 h-full relative" ref={containerRef}>
+        <div className={`transition-all duration-300 bg-white border border-stone-300 rounded-xl shadow-sm overflow-hidden relative ${selectedNode ? 'w-2/3' : 'w-full'}`}>
+          {!data || !data.nodes || data.nodes.length === 0 ? (
+            <div className="absolute inset-0 flex items-center justify-center text-stone-400 font-serif">
+              暂无原著人物关系数据，请在上方输入角色名并点击挖掘
+            </div>
+          ) : (
+            <svg className="w-full h-full" ref={svgRef}></svg>
+          )}
+          {generating && (
+            <div className="absolute inset-0 bg-stone-50/70 backdrop-blur-sm flex items-center justify-center flex-col z-10 transition-opacity rounded-xl">
+              <Loader className="animate-spin text-stone-800 mb-3" size={32} />
+              <p className="text-stone-800 font-medium text-sm font-display tracking-widest">查阅大学士编年史中...</p>
+            </div>
+          )}
+        </div>
+
+        {selectedNode && (
+          <div className="w-1/3 bg-[#fcfaf2] border border-stone-300 rounded-xl shadow-md p-6 flex flex-col relative animate-in slide-in-from-right-8 duration-300">
+            <button 
+               onClick={() => setSelectedNode(null)} 
+               className="absolute top-4 right-4 text-stone-400 hover:text-stone-700"
+            >
+               <X size={18} />
+            </button>
+            <div className="mb-4">
+              <span className="px-2 py-1 bg-amber-100 text-amber-800 text-[10px] uppercase font-bold tracking-wider rounded-sm shadow-sm">{selectedNode.group || "未知势力"}</span>
+            </div>
+            <h3 className="text-2xl font-display font-bold text-stone-900 mb-1">{selectedNode.name}</h3>
+            <p className="text-xs text-stone-500 font-mono mb-6">{selectedNode.id}</p>
+            
+            <div className="flex-1 overflow-y-auto">
+              <div className="prose prose-stone prose-sm">
+                <p className="font-serif text-stone-800 leading-relaxed whitespace-pre-wrap">
+                  {selectedNode.desc || "史书中并未找到该角色的详细记载。"}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 pt-4 border-t border-stone-200">
+              <button 
+                 onClick={() => {
+                   setSearchName(selectedNode.name); 
+                   handleGenerate();
+                 }}
+                 disabled={generating}
+                 className="w-full py-2 bg-stone-200 hover:bg-stone-300 text-stone-800 font-medium rounded-lg transition-colors border border-stone-300 shadow-sm flex items-center justify-center gap-2"
+              >
+                 <Search size={16} /> 以此人为核心深入挖掘
+              </button>
+            </div>
           </div>
         )}
       </div>
-
-      <ApiSettingsModal
-        isOpen={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        featureKey="relations"
-        title="权力之网"
-        defaultPrompt={`你是一个《冰与火之歌》(权力的游戏)百科专家。请梳理【{character_name}】的核心人物关系网（包含本人以及5-10个最关键的亲属、盟友或敌人）。请严格以JSON格式输出，不要有任何多余的解释、不要加markdown包裹、不要其他任何文本。输出必须符合如下结构：
-{
-  "nodes": [
-    {"id": "英文缩写", "name": "中文全名", "group": "所属中文势力/家族", "desc": "100-200字的该角色原著考据与性格简述"}
-  ],
-  "links": [
-    {"source": "源节点id", "target": "目标节点id", "label": "中文关系描述文本", "value": 1}
-  ]
-}`}
-      />
     </div>
   );
 }

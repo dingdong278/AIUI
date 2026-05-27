@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { ArrowLeft, Save, Code, History, Brain, Heart, MapPin, Database, Users, BookOpen, Loader, Shield, Sparkles, Plus, Trash2, Key, Settings } from "lucide-react";
-import ApiSettingsModal from "./ApiSettingsModal";
+import { ArrowLeft, Save, Code, History, Brain, Heart, MapPin, Database, Users, BookOpen, Loader, Shield, Sparkles, Plus, Trash2, Key } from "lucide-react";
 
 export default function CharacterDetail({ id, onBack }: any) {
   const [data, setData] = useState<any>(null);
@@ -624,13 +623,6 @@ export default function CharacterDetail({ id, onBack }: any) {
           </div>
         )}
       </div>
-
-      <ApiSettingsModal
-        isOpen={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        featureKey="utils"
-        title="学士院与自动人设 (Citadel)"
-      />
     </div>
   );
 }

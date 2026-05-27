@@ -1,7 +1,6 @@
 import React, { useState } from "react";
-import { Send, Loader, Sparkles, Settings } from "lucide-react";
+import { Send, Loader, Sparkles } from "lucide-react";
 import ReactMarkdown from "react-markdown";
-import ApiSettingsModal from "./ApiSettingsModal";
 
 export default function MaidenView() {
   const [messages, setMessages] = useState<{ role: string; content: string }[]>([
@@ -9,7 +8,6 @@ export default function MaidenView() {
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const handleSend = async () => {
     if (!input.trim() || loading) return;
@@ -47,13 +45,6 @@ export default function MaidenView() {
           </h2>
           <p className="text-sm text-stone-500 mt-1 font-serif">她知悉冰火大地的脉络，解答您对局势与个人命运的疑惑。</p>
         </div>
-        <button
-          onClick={() => setSettingsOpen(true)}
-          className="p-1.5 text-stone-500 hover:text-stone-800 hover:bg-stone-200 rounded transition-colors"
-          title="设定圣女的灵魂 (API配置)"
-        >
-          <Settings size={18} />
-        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto bg-stone-50/50 border border-stone-200 rounded-xl p-4 mb-4 space-y-6">
@@ -98,15 +89,6 @@ export default function MaidenView() {
         </button>
       </div>
 
-      <ApiSettingsModal
-        isOpen={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        featureKey="maiden"
-        title="圣女谏言"
-        defaultPrompt={`你是一位侍奉七神的圣女。你的职责是倾听玩家的烦恼，结合最近发生的事件日志为玩家提供发展方向和角色交互建议。用温柔、关怀的口吻回答。
-【最近的世界事件如下】:
-{recent_events}`}
-      />
     </div>
   );
 }

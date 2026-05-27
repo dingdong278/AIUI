@@ -21,6 +21,30 @@ const logFile = path.resolve(process.cwd(), "logs/engine_latest.log");
 const configPath = path.resolve(process.cwd(), "config.json");
 const prioritiesPath = path.resolve(process.cwd(), "character_priorities.json");
 
+// Utility to get API config per module
+async function getResolvedApiConfig(moduleName: string) {
+    let configStr = "{}";
+    try { configStr = await fs.readFile(configPath, "utf-8"); } catch(e){}
+    let config: any = {};
+    try { config = JSON.parse(configStr); } catch(e){}
+    
+    // Backwards compatibility with old flat config if `api` object doesn't exist
+    const apiConfigs = config.api || {
+        engine: { key: config.api_key, url: config.base_url, model: config.model },
+        lore: { key: config.utils_api_key, url: config.utils_base_url, model: config.utils_model },
+        maiden: { key: config.utils_api_key, url: config.utils_base_url, model: config.utils_model }
+    };
+    
+    const mainApi = apiConfigs.engine || {};
+    const specificApi = apiConfigs[moduleName] || {};
+    
+    return {
+        key: specificApi.key || mainApi.key || config.api_key || process.env.DEEPSEEK_API_KEY || "",
+        url: specificApi.url || mainApi.url || config.base_url || "https://api.deepseek.com",
+        model: specificApi.model || mainApi.model || config.model || "deepseek-chat"
+    };
+}
+
 // Utility to get active NPC Path
 async function getActiveNpcPath() {
     let configStr = "{}";
@@ -156,15 +180,17 @@ app.post("/api/relations/generate", async (req, res) => {
     const { character_name } = req.body;
     if (!character_name) return res.status(400).json({ error: "Name required" });
 
-    const configStr = await fs.readFile(configPath, "utf-8");
-    const configObj = JSON.parse(configStr);
-
-    const apiKey = configObj.relations_api_key || configObj.utils_api_key || configObj.api_key;
-    const reqBaseUrl = configObj.relations_base_url || configObj.utils_base_url || configObj.base_url || "https://api.deepseek.com";
-    const apiUrl = reqBaseUrl.endsWith('/') ? `${reqBaseUrl}chat/completions` : `${reqBaseUrl}/chat/completions`;
-    const model = configObj.relations_model || configObj.utils_model || configObj.model || "deepseek-chat";
-
+    const apiCfg = await getResolvedApiConfig("relations");
+    const apiKey = apiCfg.key;
     if (!apiKey) throw new Error("No API key configured for relations generation.");
+
+    const reqBaseUrl = apiCfg.url;
+    const apiUrl = reqBaseUrl.endsWith('/') ? `${reqBaseUrl}chat/completions` : `${reqBaseUrl}/chat/completions`;
+    const model = apiCfg.model;
+
+    let configStr = "{}";
+    try { configStr = await fs.readFile(configPath, "utf-8"); } catch(e){}
+    const configObj = JSON.parse(configStr);
 
     let promptTemplate = configObj.relations_prompt || `你是一个《冰与火之歌》(权力的游戏)百科专家。请梳理【{character_name}】的核心人物关系网（包含本人以及5-10个最关键的亲属、盟友或敌人）。请严格以JSON格式输出，不要有任何多余的解释、不要加markdown包裹、不要其他任何文本。输出必须符合如下结构：
 {
@@ -299,15 +325,17 @@ app.get("/api/realm/status", async (req, res) => {
 
 app.post("/api/realm/generate", async (req, res) => {
   try {
-    const configStr = await fs.readFile(configPath, "utf-8");
-    const configObj = JSON.parse(configStr);
-
-    const apiKey = configObj.realm_api_key || configObj.api_key;
-    const reqBaseUrl = configObj.realm_base_url || configObj.base_url || "https://api.deepseek.com";
-    const apiUrl = reqBaseUrl.endsWith('/') ? `${reqBaseUrl}chat/completions` : `${reqBaseUrl}/chat/completions`;
-    const model = configObj.realm_model || configObj.model || "deepseek-chat";
-
+    const apiCfg = await getResolvedApiConfig("historian");
+    const apiKey = apiCfg.key;
     if (!apiKey) throw new Error("No API key configured for realm generation.");
+
+    const reqBaseUrl = apiCfg.url;
+    const apiUrl = reqBaseUrl.endsWith('/') ? `${reqBaseUrl}chat/completions` : `${reqBaseUrl}/chat/completions`;
+    const model = apiCfg.model;
+
+    let configStr = "{}";
+    try { configStr = await fs.readFile(configPath, "utf-8"); } catch(e){}
+    const configObj = JSON.parse(configStr);
 
     // Retrieve some logs
     let recentEvents = "无近期事件记录...";
@@ -386,15 +414,17 @@ app.post("/api/maiden/chat", async (req, res) => {
   try {
     const { messages } = req.body;
     
-    const configStr = await fs.readFile(configPath, "utf-8");
-    const configObj = JSON.parse(configStr);
-
-    const apiKey = configObj.maiden_api_key || configObj.api_key;
-    const reqBaseUrl = configObj.maiden_base_url || configObj.base_url || "https://api.deepseek.com";
-    const apiUrl = reqBaseUrl.endsWith('/') ? `${reqBaseUrl}chat/completions` : `${reqBaseUrl}/chat/completions`;
-    const model = configObj.maiden_model || configObj.model || "deepseek-chat";
-
+    const apiCfg = await getResolvedApiConfig("maiden");
+    const apiKey = apiCfg.key;
     if (!apiKey) throw new Error("No API key configured for maiden.");
+
+    const reqBaseUrl = apiCfg.url;
+    const apiUrl = reqBaseUrl.endsWith('/') ? `${reqBaseUrl}chat/completions` : `${reqBaseUrl}/chat/completions`;
+    const model = apiCfg.model;
+
+    let configStr = "{}";
+    try { configStr = await fs.readFile(configPath, "utf-8"); } catch(e){}
+    const configObj = JSON.parse(configStr);
 
     // Retrieve some logs
     let recentEvents = "无近期事件记录...";
@@ -500,6 +530,39 @@ app.post("/api/config", async (req, res) => {
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: "Failed to write config" });
+  }
+});
+
+app.post("/api/config/test", async (req, res) => {
+  try {
+    const apiCfg = await getResolvedApiConfig("engine");
+    if (!apiCfg.key) {
+      return res.status(400).json({ error: "尚未配置API密钥 (API Key not found)" });
+    }
+    const tBaseUrl = apiCfg.url.trim();
+    const apiUrl = tBaseUrl.endsWith('/') ? `${tBaseUrl}chat/completions` : `${tBaseUrl}/chat/completions`;
+    
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiCfg.key}`
+      },
+      body: JSON.stringify({
+        model: apiCfg.model,
+        messages: [{ role: "user", content: "请只回复'Ping OK'" }],
+        max_tokens: 50
+      })
+    });
+    if (!response.ok) {
+       const err = await response.text();
+       throw new Error(err);
+    }
+    const data = await response.json();
+    const txt = data.choices?.[0]?.message?.content || "";
+    res.json({ success: true, response: txt });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "连接测试失败" });
   }
 });
 
@@ -770,16 +833,12 @@ app.get("/api/lore/:id", async (req, res) => {
       }
     }
 
-    let configObj: any = { api_key: "", base_url: "", model: "" };
-    try {
-      const configStr = await fs.readFile(configPath, "utf-8");
-      configObj = JSON.parse(configStr);
-    } catch(e) {}
-
-    const apiKey = configObj.utils_api_key || configObj.api_key;
+    const apiCfg = await getResolvedApiConfig("lore");
+    const apiKey = apiCfg.key;
     let text = "";
+    
     if (apiKey) {
-      const tBaseUrl = configObj.utils_base_url || configObj.base_url || "https://api.deepseek.com";
+      const tBaseUrl = apiCfg.url;
       const apiUrl = tBaseUrl.endsWith('/') ? `${tBaseUrl}chat/completions` : `${tBaseUrl}/chat/completions`;
 
       const response = await fetch(apiUrl, {
@@ -789,7 +848,7 @@ app.get("/api/lore/:id", async (req, res) => {
           "Authorization": `Bearer ${apiKey}`
         },
         body: JSON.stringify({
-          model: configObj.utils_model || configObj.model || "deepseek-chat",
+          model: apiCfg.model,
           messages: [
             {
               role: "system",
@@ -816,17 +875,6 @@ app.get("/api/lore/:id", async (req, res) => {
             text = "暂无详细的考据数据。";
          }
       }
-    } else if (process.env.GEMINI_API_KEY) {
-       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-       const prompt = `你是一个专业的《冰与火之歌》(权力的游戏)世界百科专家。如果请求的名字是维斯特洛或厄斯索斯的原著角色，请用200-300字简短介绍其身份、家族、核心性格和宿命。如果是边缘人或MOD原创人物，请合理推测其背景。用中文回答，风格专业沉浸。\n\n请求关于这个角色的档案：${id}`;
-       const response = await ai.models.generateContent({
-         model: "gemini-2.5-flash",
-         contents: prompt
-       });
-       text = response.text();
-       if (!text) {
-         return res.status(500).json({ error: "Gemini API returned empty response" });
-       }
     } else {
       const isStark = id.toLowerCase().includes("stark") || id.toLowerCase().includes("brian") || id.toLowerCase().includes("ned");
       const isLannister = id.toLowerCase().includes("lannister") || id.toLowerCase().includes("tyrion") || id.toLowerCase().includes("jaime") || id.toLowerCase().includes("cersei");
