@@ -37,6 +37,8 @@ def get_engine_config():
 _cfg = get_engine_config()
 API_KEY = _cfg.get("api", {}).get("engine", {}).get("key") or _cfg.get("api_key") or os.getenv("DEEPSEEK_API_KEY", "sk-7d2a561839574a19823228d28ee3b355")
 BASE_URL = _cfg.get("api", {}).get("engine", {}).get("url") or _cfg.get("base_url") or os.getenv("API_BASE_URL", "https://api.deepseek.com")
+if "generativelanguage.googleapis.com" in BASE_URL:
+    BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 MODEL = _cfg.get("api", {}).get("engine", {}).get("model") or _cfg.get("model") or os.getenv("API_MODEL", "deepseek-v4-flash")
 
 # 这些路径将在启动时根据实际存档 ID 自动确定
@@ -662,8 +664,17 @@ def analyze_npc(npc_json: dict, npc_string_id: str, current_day: float, new_conv
     
     for attempt in range(3):
         try:
+            logger.info(f"\n================================ 【 大模型请求 - 角色: {npc_name} 】 ================================\n")
+            logger.info(f"[系统指令模板]: \n{SYSTEM_PROMPT_TEMPLATE}\n")
+            logger.info(f"[用户输入的上下文数据 (Prompt)]: \n{prompt}\n")
+            logger.info("... 正在等待模型返回 (Wait for AI inference) ...\n")
+            
             resp = client.chat.completions.create(model=MODEL, messages=[{"role": "system", "content": SYSTEM_PROMPT_TEMPLATE}, {"role": "user", "content": prompt}], temperature=0.4, max_tokens=max_tokens)
-            if not resp.choices[0].message.content.strip(): time.sleep(1); continue
+            
+            reply_text = resp.choices[0].message.content.strip()
+            logger.info(f"\n<<< [模型推理回复原文]: \n{reply_text}\n========================================================================================\n")
+            
+            if not reply_text: time.sleep(1); continue
             
             hit = miss = out_tok = 0
             if resp.usage:

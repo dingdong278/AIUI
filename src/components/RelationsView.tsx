@@ -209,7 +209,12 @@ export default function RelationsView() {
               type="text" 
               value={searchName}
               onChange={(e) => setSearchName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}
+              onKeyDown={(e) => {
+                if(e.key === 'Enter') {
+                  e.preventDefault();
+                  handleGenerate();
+                }
+              }}
               placeholder="输入冰火原著角色名..."
               className="pl-8 pr-3 py-1.5 w-56 text-sm bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-stone-500 font-sans shadow-sm"
             />

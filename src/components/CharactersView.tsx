@@ -9,13 +9,21 @@ export default function CharactersView() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [genStatus, setGenStatus] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
 
   const fetchCharacters = async () => {
     try {
       const res = await fetch("/api/characters");
       const data = await res.json();
-      setCharacters(data.characters || []);
-    } catch (e) {
+      if (data.error) {
+        setErrorMsg(data.error);
+        setCharacters([]);
+      } else {
+        setErrorMsg("");
+        setCharacters(data.characters || []);
+      }
+    } catch (e: any) {
+      setErrorMsg(e.message || "Failed to load characters");
       console.error(e);
     } finally {
       setLoading(false);
@@ -85,6 +93,17 @@ export default function CharactersView() {
         </div>
       </div>
 
+      {errorMsg && (
+        <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-md">
+          <p className="text-sm text-red-700">
+            <strong>加载存档目录失败:</strong> {errorMsg}
+          </p>
+          <p className="text-xs text-red-600 mt-1">
+            如果您在云端预览环境中运行此应用，请注意：云端服务器无法直接读取您本地电脑上的（如 E:\...）游戏存档。请导出并下载应用至本地环境运行。
+          </p>
+        </div>
+      )}
+
       {/* Characters List Grid */}
       <div className="flex-1 overflow-auto p-1">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -112,8 +131,8 @@ export default function CharactersView() {
               
               <div className="mt-5 grid grid-cols-2 gap-2">
                  <div className="flex items-center space-x-2 bg-stone-100/70 rounded-lg p-2 border border-stone-200/50">
-                    <Brain size={12} className="text-stone-500" />
-                    <span className="text-xs font-medium text-stone-700 capitalize truncate font-serif">{char.mood || "平静"}</span>
+                    <Shield size={12} className="text-stone-500" />
+                    <span className="text-xs font-medium text-stone-700 capitalize truncate font-serif">{char.faction || "维斯特洛领主"}</span>
                  </div>
                  <div className="flex items-center space-x-2 bg-stone-100/70 rounded-lg p-2 border border-stone-200/50">
                     <MapPin size={12} className="text-stone-500" />

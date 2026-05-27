@@ -76,7 +76,12 @@ export default function MaidenView() {
           type="text" 
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+          onKeyDown={(e) => {
+            if(e.key === 'Enter') {
+              e.preventDefault();
+              handleSend();
+            }
+          }}
           placeholder="向圣女询问你的困惑，或下一步的发展..."
           className="flex-1 bg-white border border-stone-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
         />

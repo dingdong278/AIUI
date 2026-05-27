@@ -121,14 +121,14 @@ export default function App() {
 
         <div className="flex-1 overflow-auto p-8 relative">
           <div className="h-full w-full max-w-7xl mx-auto">
-            {activeTab === "realm" && <RealmStatusView />}
-            {activeTab === "characters" && <CharactersView />}
-            {activeTab === "relations" && <RelationsView />}
-            {activeTab === "priorities" && <PrioritiesView />}
-            {activeTab === "maiden" && <MaidenView />}
-            {activeTab === "promptbuilder" && <PromptBuilderView />}
-            {activeTab === "config" && <ConfigView />}
-            {activeTab === "logs" && <LogsView running={status.running} />}
+            <div className={`h-full w-full ${activeTab === "realm" ? "block" : "hidden"}`}><RealmStatusView /></div>
+            <div className={`h-full w-full ${activeTab === "characters" ? "block" : "hidden"}`}><CharactersView /></div>
+            <div className={`h-full w-full ${activeTab === "relations" ? "block" : "hidden"}`}><RelationsView /></div>
+            <div className={`h-full w-full ${activeTab === "priorities" ? "block" : "hidden"}`}><PrioritiesView /></div>
+            <div className={`h-full w-full ${activeTab === "maiden" ? "block" : "hidden"}`}><MaidenView /></div>
+            <div className={`h-full w-full ${activeTab === "promptbuilder" ? "block" : "hidden"}`}><PromptBuilderView /></div>
+            <div className={`h-full w-full ${activeTab === "config" ? "block" : "hidden"}`}><ConfigView /></div>
+            <div className={`h-full w-full ${activeTab === "logs" ? "block" : "hidden"}`}><LogsView running={status.running} /></div>
           </div>
         </div>
       </main>

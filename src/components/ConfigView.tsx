@@ -1,6 +1,36 @@
 import React, { useState, useEffect } from "react";
 import { Save, AlertCircle, Sparkles, BookOpen } from "lucide-react";
 
+const DEFAULT_PROMPTS = {
+  worldContext: `[世界背景]\n冰与火之歌世界（维斯特洛与厄斯索斯大陆）\n\n大陆正处于中世纪封建与大混战时期...（引擎硬编码默认值）`,
+  systemTemplate: `你是一个《冰与火之歌》(权力的游戏)世界中的真实角色。你需要基于自己的人生记忆时间线，生成今天的内心活动和可能的行动。...\n[INTERNAL_THOUGHTS]\n...（引擎硬编码默认值）`,
+  maidenTemplate: `你是一位侍奉七神的圣女。你的职责是倾听玩家的烦恼，结合最近发生的事件日志为玩家提供发展方向和角色交互建议。用温柔、关怀的口吻回答。
+【最近的世界事件如下】:
+{recent_events}`,
+  relationsPrompt: `你是一个《冰与火之歌》(权力的游戏)百科专家。请梳理【{character_name}】的核心人物关系网（包含本人以及5-10个最关键的亲属、盟友或敌人）。请严格以JSON格式输出，不要有任何多余的解释、不要加markdown包裹、不要其他任何文本。输出必须符合如下结构：
+{
+  "nodes": [
+    {"id": "英文缩写", "name": "中文全名", "group": "所属中文势力/家族", "desc": "100-200字的该角色原著考据与性格简述"}
+  ],
+  "links": [
+    {"source": "源节点id", "target": "目标节点id", "label": "中文关系描述文本", "value": 1}
+  ]
+}`,
+  realmPrompt: `你是一位撰写《维斯特洛纪事》的学士。请根据下方提供的【最近发生的世界事件日志】，用充满史诗和奇幻学术风格的口吻，生成 2 - 3 条宏观世界局势总结汇报。
+必须以强类型的 JSON 数组格式返回，必须符合如下结构，不要包含多余文本：
+{
+  "reports": [
+    {
+      "date": "如: 几天前 / 299年月",
+      "summary": "事件的宏大叙事总结..."
+    }
+  ]
+}
+
+【最近的世界事件如下】:
+{recent_events}`
+};
+
 export default function ConfigView() {
   const [config, setConfig] = useState<any>({ api: {}, prompts: {} });
   const [loading, setLoading] = useState(true);
@@ -236,7 +266,7 @@ export default function ConfigView() {
            <div>
              <label className="block text-sm font-medium text-stone-700 mb-1">🌍 世界背景覆盖 (World Context Prompt)</label>
              <textarea
-               value={config.prompts?.worldContext || ""}
+               value={config.prompts?.worldContext || DEFAULT_PROMPTS.worldContext}
                onChange={e => handlePromptChange("worldContext", e.target.value)}
                rows={6}
                placeholder="(如果留空，后台将使用硬编码的默认「冰与火之歌」宏大背景)"
@@ -248,7 +278,7 @@ export default function ConfigView() {
            <div>
              <label className="block text-sm font-medium text-stone-700 mb-1">🤖 引擎内核指令模板 (System Template)</label>
              <textarea
-               value={config.prompts?.systemTemplate || ""}
+               value={config.prompts?.systemTemplate || DEFAULT_PROMPTS.systemTemplate}
                onChange={e => handlePromptChange("systemTemplate", e.target.value)}
                rows={10}
                placeholder="(如果留空，将使用内置的 ASOIAF 内心独白、信件解析主指令)"
@@ -260,7 +290,7 @@ export default function ConfigView() {
            <div>
              <label className="block text-sm font-medium text-stone-700 mb-1">👰 圣女谏言神谕 (Maiden Prompt Override)</label>
              <textarea
-               value={config.prompts?.maidenTemplate || ""}
+               value={config.prompts?.maidenTemplate || DEFAULT_PROMPTS.maidenTemplate}
                onChange={e => handlePromptChange("maidenTemplate", e.target.value)}
                rows={4}
                placeholder="(可选) 重定义圣女问答时的开场设定..."
@@ -271,10 +301,21 @@ export default function ConfigView() {
            <div>
              <label className="block text-sm font-medium text-stone-700 mb-1">🕸️ 权力之网系统约束 (Relations Prompt Override)</label>
              <textarea
-               value={config.prompts?.relationsPrompt || ""}
+               value={config.prompts?.relationsPrompt || DEFAULT_PROMPTS.relationsPrompt}
                onChange={e => handlePromptChange("relationsPrompt", e.target.value)}
                rows={4}
                placeholder="(可选) 控制生成节点 JSON 的特殊格式要求..."
+               className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none text-sm font-mono bg-stone-50"
+             />
+           </div>
+
+           <div>
+             <label className="block text-sm font-medium text-stone-700 mb-1">📜 史官编年史约束 (Realm Historian Prompt)</label>
+             <textarea
+               value={config.prompts?.realmPrompt || DEFAULT_PROMPTS.realmPrompt}
+               onChange={e => handlePromptChange("realmPrompt", e.target.value)}
+               rows={4}
+               placeholder="(可选) 自动生成本回合总结纪事时的口吻和格式要求..."
                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none text-sm font-mono bg-stone-50"
              />
            </div>

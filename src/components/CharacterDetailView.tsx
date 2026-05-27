@@ -1,6 +1,40 @@
 import React, { useState, useEffect } from "react";
 import { ArrowLeft, Save, Code, History, Brain, Heart, MapPin, Database, Users, BookOpen, Loader, Shield, Sparkles, Plus, Trash2, Key } from "lucide-react";
 
+function extractFaction(data: any): string {
+  if (data.Faction) return data.Faction;
+  if (data.Culture) return data.Culture;
+  
+  // Try to parse from name (e.g. 丹妮莉丝·坦格利安 -> 坦格利安家族)
+  if (data.Name && data.Name.includes('·')) {
+    const parts = data.Name.split('·');
+    const surname = parts[parts.length - 1];
+    return `${surname}家族`;
+  }
+
+  // Check RecentEvents for clues (e.g. "kingdom:坦格利安家族")
+  if (data.RecentEvents && Array.isArray(data.RecentEvents)) {
+    for (const event of data.RecentEvents) {
+      if (typeof event.Description === 'string') {
+        const match = event.Description.match(/kingdom:([^,)]+)/);
+        if (match && match[1]) {
+           return match[1].trim();
+        }
+      }
+    }
+  }
+  
+  // Check LocationType for kingdom
+  if (data.LocationType && typeof data.LocationType === 'string') {
+    const match = data.LocationType.match(/kingdom of ([^,)]+)/);
+    if (match && match[1]) {
+       return match[1].trim();
+    }
+  }
+
+  return "维斯特洛领主 (Westeros Dignitary)";
+}
+
 export default function CharacterDetail({ id, onBack }: any) {
   const [data, setData] = useState<any>(null);
   const [state, setState] = useState<any>(null);
@@ -26,6 +60,7 @@ export default function CharacterDetail({ id, onBack }: any) {
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
   const [generatingPersonality, setGeneratingPersonality] = useState(false);
+  const [metaFaction, setMetaFaction] = useState<string | null>(null);
 
   // Send message
   const [outboxMsg, setOutboxMsg] = useState("");
@@ -38,6 +73,7 @@ export default function CharacterDetail({ id, onBack }: any) {
       const json = await res.json();
       setData(json.json);
       setState(json.state);
+      setMetaFaction(json.metaFaction || null);
       setRawText(JSON.stringify(json.json, null, 2));
     } catch (e) {
       console.error(e);
@@ -284,7 +320,7 @@ export default function CharacterDetail({ id, onBack }: any) {
               </span>
             </h2>
             <div className="text-xs text-stone-500 mt-1">
-              {data.Faction || data.Culture || "维斯特洛领主 (Westeros Dignitary)"}
+              {metaFaction || extractFaction(data)}
             </div>
           </div>
         </div>
@@ -298,15 +334,6 @@ export default function CharacterDetail({ id, onBack }: any) {
            >
              {generatingAll ? <Loader size={14} className="animate-spin" /> : <Sparkles size={14} />}
              <span className="hidden sm:inline">撰写领主志 (Generate All)</span>
-           </button>
-           
-           <button 
-             onClick={() => setSettingsOpen(true)}
-             className="px-3 py-1.5 flex items-center gap-1.5 bg-stone-200 hover:bg-stone-300 text-stone-700 text-sm font-medium rounded-lg transition-colors border border-stone-300"
-             title="配置学士院与人设补齐的 API (Citadel Settings)"
-           >
-             <Settings size={14} />
-             <span className="hidden sm:inline">Settings</span>
            </button>
            
            {saveMessage && (

@@ -21,6 +21,14 @@ const logFile = path.resolve(process.cwd(), "logs/engine_latest.log");
 const configPath = path.resolve(process.cwd(), "config.json");
 const prioritiesPath = path.resolve(process.cwd(), "character_priorities.json");
 
+function getOpenAICompatibleUrl(url: string) {
+  let tBaseUrl = url.trim();
+  if (tBaseUrl.includes("generativelanguage.googleapis.com")) {
+    return "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+  }
+  return tBaseUrl.endsWith('/') ? `${tBaseUrl}chat/completions` : `${tBaseUrl}/chat/completions`;
+}
+
 // Utility to get API config per module
 async function getResolvedApiConfig(moduleName: string) {
     let configStr = "{}";
@@ -51,10 +59,6 @@ async function getActiveNpcPath() {
     try { configStr = await fs.readFile(configPath, "utf-8"); } catch(e){}
     const config = JSON.parse(configStr);
     let basePath = config.base_path || "";
-    
-    if (process.platform !== "win32" && (basePath.startsWith("E:") || basePath.startsWith("C:") || basePath.includes("\\"))) {
-        basePath = path.join(process.cwd(), "save_data");
-    }
     
     // Check if the basePath ITSELF is a campaign directory (e.g. it directly contains npc_lives or .json character files)
     try {
@@ -185,14 +189,14 @@ app.post("/api/relations/generate", async (req, res) => {
     if (!apiKey) throw new Error("No API key configured for relations generation.");
 
     const reqBaseUrl = apiCfg.url;
-    const apiUrl = reqBaseUrl.endsWith('/') ? `${reqBaseUrl}chat/completions` : `${reqBaseUrl}/chat/completions`;
+    const apiUrl = getOpenAICompatibleUrl(reqBaseUrl);
     const model = apiCfg.model;
 
     let configStr = "{}";
     try { configStr = await fs.readFile(configPath, "utf-8"); } catch(e){}
     const configObj = JSON.parse(configStr);
 
-    let promptTemplate = configObj.relations_prompt || `你是一个《冰与火之歌》(权力的游戏)百科专家。请梳理【{character_name}】的核心人物关系网（包含本人以及5-10个最关键的亲属、盟友或敌人）。请严格以JSON格式输出，不要有任何多余的解释、不要加markdown包裹、不要其他任何文本。输出必须符合如下结构：
+    let promptTemplate = configObj.prompts?.relationsPrompt || configObj.relations_prompt || `你是一个《冰与火之歌》(权力的游戏)百科专家。请梳理【{character_name}】的核心人物关系网（包含本人以及5-10个最关键的亲属、盟友或敌人）。请严格以JSON格式输出，不要有任何多余的解释、不要加markdown包裹、不要其他任何文本。输出必须符合如下结构：
 {
   "nodes": [
     {"id": "英文缩写", "name": "中文全名", "group": "所属中文势力/家族", "desc": "100-200字的该角色原著考据与性格简述"}
@@ -202,6 +206,10 @@ app.post("/api/relations/generate", async (req, res) => {
   ]
 }`;
     const prompt = promptTemplate.replace(/{character_name}/g, character_name);
+
+    console.log(`\n=================== [服务端请求] 权力之网挖掘 (Relations API) ===================\n`);
+    console.log(`[API URL]: ${apiUrl}\n[Model]: ${model}\n[Token]: ${apiKey.substring(0, 5)}...`);
+    console.log(`[完整提示词 (Prompt)]:\n${prompt}\n等待回复中...`);
 
     const response = await fetch(apiUrl, {
       method: "POST",
@@ -216,6 +224,11 @@ app.post("/api/relations/generate", async (req, res) => {
     });
 
     const data: any = await response.json();
+    
+    console.log(`\n<<< [API 返回结果]:`);
+    console.log(JSON.stringify(data, null, 2));
+    console.log(`=================================================================================\n`);
+
     if (!data.choices || !data.choices[0]) throw new Error("API返回错误: " + JSON.stringify(data));
 
     let content = data.choices[0].message.content.trim();
@@ -232,35 +245,50 @@ app.post("/api/relations/generate", async (req, res) => {
       const campaignPath = await getActiveNpcPath();
       const files = await fs.readdir(campaignPath).catch(() => []);
       for (const node of aiRes.nodes) {
+        let matchedName = (node.name || node.id).replace(/\s*\(.*?\)/g, "").trim();
+        let exactFilePath = "";
+        let targetJson: any = null;
+          
+        // Fuzzy match to find the true character Name to store under the correct folder
+        const searchTargets = [node.name.toLowerCase(), node.id.toLowerCase()];
+        for (const file of files) {
+           if (!file.endsWith(".json")) continue;
+           try {
+              const tempPath = path.join(campaignPath, file);
+              const tempJson = JSON.parse(await fs.readFile(tempPath, "utf-8"));
+              const charName = (tempJson.Name || "").toLowerCase();
+              const charStringId = (tempJson.StringId || "").toLowerCase();
+              const fileName = file.toLowerCase().replace(".json", "");
+              
+              let found = false;
+              for (const st of searchTargets) {
+                 if (fileName.includes(st) || st.includes(fileName) ||
+                    (charName && (charName.includes(st) || st.includes(charName))) ||
+                    (charStringId && (charStringId.includes(st) || st.includes(charStringId)))) {
+                    found = true; break;
+                 }
+              }
+              if (found && tempJson.Name) {
+                 matchedName = tempJson.Name.replace(/\s*\(.*?\)/g, "").trim();
+                 exactFilePath = tempPath;
+                 targetJson = tempJson;
+                 break;
+              }
+           } catch(e) {}
+        }
+        
+        // Store Faction in a separate meta_factions.json instead of mod's character JSON
+        if (matchedName && node.group) {
+           const metaFile = path.join(campaignPath, "meta_factions.json");
+           let metaFactions: any = {};
+           try { metaFactions = JSON.parse(await fs.readFile(metaFile, "utf-8")); } catch(e) {}
+           if (!metaFactions[matchedName]) {
+               metaFactions[matchedName] = node.group;
+               await fs.writeFile(metaFile, JSON.stringify(metaFactions, null, 2), "utf-8");
+           }
+        }
+
         if (node.desc && typeof node.desc === 'string') {
-          let matchedName = (node.name || node.id).replace(/\s*\(.*?\)/g, "").trim();
-          
-          // Fuzzy match to find the true character Name to store under the correct folder
-          const searchTargets = [node.name.toLowerCase(), node.id.toLowerCase()];
-          for (const file of files) {
-             if (!file.endsWith(".json")) continue;
-             try {
-                const tempPath = path.join(campaignPath, file);
-                const tempJson = JSON.parse(await fs.readFile(tempPath, "utf-8"));
-                const charName = (tempJson.Name || "").toLowerCase();
-                const charStringId = (tempJson.StringId || "").toLowerCase();
-                const fileName = file.toLowerCase().replace(".json", "");
-                
-                let found = false;
-                for (const st of searchTargets) {
-                   if (fileName.includes(st) || st.includes(fileName) ||
-                      (charName && (charName.includes(st) || st.includes(charName))) ||
-                      (charStringId && (charStringId.includes(st) || st.includes(charStringId)))) {
-                      found = true; break;
-                   }
-                }
-                if (found && tempJson.Name) {
-                   matchedName = tempJson.Name.replace(/\s*\(.*?\)/g, "").trim();
-                   break;
-                }
-             } catch(e) {}
-          }
-          
           const charFolder = path.join(campaignPath, "npc_lives", matchedName);
           const loreFile = path.join(charFolder, "lore.txt");
           await fs.mkdir(charFolder, { recursive: true });
@@ -330,7 +358,7 @@ app.post("/api/realm/generate", async (req, res) => {
     if (!apiKey) throw new Error("No API key configured for realm generation.");
 
     const reqBaseUrl = apiCfg.url;
-    const apiUrl = reqBaseUrl.endsWith('/') ? `${reqBaseUrl}chat/completions` : `${reqBaseUrl}/chat/completions`;
+    const apiUrl = getOpenAICompatibleUrl(reqBaseUrl);
     const model = apiCfg.model;
 
     let configStr = "{}";
@@ -360,7 +388,7 @@ app.post("/api/realm/generate", async (req, res) => {
       } catch(ex) {}
     }
 
-    const promptTemplate = configObj.realm_prompt || `你是一位撰写《维斯特洛纪事》的学士。请根据下方提供的【最近发生的世界事件日志】，用充满史诗和奇幻学术风格的口吻，生成 2 - 3 条宏观世界局势总结汇报。
+    const promptTemplate = configObj.prompts?.realmPrompt || configObj.realm_prompt || `你是一位撰写《维斯特洛纪事》的学士。请根据下方提供的【最近发生的世界事件日志】，用充满史诗和奇幻学术风格的口吻，生成 2 - 3 条宏观世界局势总结汇报。
 必须以强类型的 JSON 数组格式返回，必须符合如下结构，不要包含多余文本：
 {
   "reports": [
@@ -419,7 +447,7 @@ app.post("/api/maiden/chat", async (req, res) => {
     if (!apiKey) throw new Error("No API key configured for maiden.");
 
     const reqBaseUrl = apiCfg.url;
-    const apiUrl = reqBaseUrl.endsWith('/') ? `${reqBaseUrl}chat/completions` : `${reqBaseUrl}/chat/completions`;
+    const apiUrl = getOpenAICompatibleUrl(reqBaseUrl);
     const model = apiCfg.model;
 
     let configStr = "{}";
@@ -488,13 +516,17 @@ app.post("/api/maiden/chat", async (req, res) => {
     const defaultPrompt = `你是一位侍奉七神的圣女。你的职责是倾听玩家的烦恼，结合最近发生的事件日志为玩家提供发展方向和角色交互建议。用温柔、关怀的口吻回答。
 【最近的世界事件如下】:
 {recent_events}`;
-    const sysPromptTemplate = configObj.maiden_prompt || defaultPrompt;
+    const sysPromptTemplate = configObj.prompts?.maidenTemplate || configObj.maiden_prompt || defaultPrompt;
     const sysPrompt = sysPromptTemplate.replace(/{recent_events}/g, recentEvents + thoughtsText);
 
     const fullMessages = [
       { role: "system", content: sysPrompt },
       ...messages
     ];
+
+    console.log(`\n=================== [服务端请求] 圣女谏言 (Maiden Chat) ===================\n`);
+    console.log(`[API URL]: ${apiUrl}\n[Model]: ${model}\n[Token]: ${apiKey.substring(0, 5)}...`);
+    console.log(`[完整上下文]:\n${JSON.stringify(fullMessages, null, 2)}\n等待回复中...`);
 
     const response = await fetch(apiUrl, {
       method: "POST",
@@ -503,6 +535,11 @@ app.post("/api/maiden/chat", async (req, res) => {
     });
     
     const data: any = await response.json();
+    
+    console.log(`\n<<< [API 返回结果]:`);
+    console.log(JSON.stringify(data, null, 2));
+    console.log(`=========================================================================\n`);
+
     if (!data.choices || !data.choices[0]) throw new Error("API返回错误: " + JSON.stringify(data));
 
     res.json({ reply: data.choices[0].message.content.trim() });
@@ -540,7 +577,7 @@ app.post("/api/config/test", async (req, res) => {
       return res.status(400).json({ error: "尚未配置API密钥 (API Key not found)" });
     }
     const tBaseUrl = apiCfg.url.trim();
-    const apiUrl = tBaseUrl.endsWith('/') ? `${tBaseUrl}chat/completions` : `${tBaseUrl}/chat/completions`;
+    const apiUrl = getOpenAICompatibleUrl(tBaseUrl);
     
     const response = await fetch(apiUrl, {
       method: "POST",
@@ -589,6 +626,28 @@ app.post("/api/priorities", async (req, res) => {
 });
 
 // Character Discovery & Operations
+function extractFaction(data: any): string | null {
+  if (data.Faction) return data.Faction;
+  if (data.Culture) return data.Culture;
+  if (data.Name && data.Name.includes('·')) {
+    const parts = data.Name.split('·');
+    return `${parts[parts.length - 1]}家族`;
+  }
+  if (data.RecentEvents && Array.isArray(data.RecentEvents)) {
+    for (const event of data.RecentEvents) {
+      if (typeof event.Description === 'string') {
+        const match = event.Description.match(/kingdom:([^,)]+)/);
+        if (match && match[1]) return match[1].trim();
+      }
+    }
+  }
+  if (data.LocationType && typeof data.LocationType === 'string') {
+    const match = data.LocationType.match(/kingdom of ([^,)]+)/);
+    if (match && match[1]) return match[1].trim();
+  }
+  return null;
+}
+
 app.get("/api/characters", async (req, res) => {
   try {
     const campaignPath = await getActiveNpcPath();
@@ -601,6 +660,12 @@ app.get("/api/characters", async (req, res) => {
         stateData = JSON.parse(await fs.readFile(engineStatePath, "utf-8"));
     } catch(e) {}
     
+    const metaFactionsPath = path.join(campaignPath, "meta_factions.json");
+    let metaFactions: any = {};
+    try {
+        metaFactions = JSON.parse(await fs.readFile(metaFactionsPath, "utf-8"));
+    } catch(e) {}
+    
     for (const file of files) {
       if (file.endsWith(".json")) {
         const filePath = path.join(campaignPath, file);
@@ -609,6 +674,8 @@ app.get("/api/characters", async (req, res) => {
           const json = JSON.parse(data);
           if (json.StringId) {
              const charState = stateData[json.StringId] || {};
+             const cleanName = (json.Name || json.StringId).replace(/\s*\(.*?\)/g, "").trim();
+             let faction = metaFactions[cleanName] || extractFaction(json);
              characters.push({
                 id: file.replace(".json", ""),
                 name: json.Name || json.StringId,
@@ -616,15 +683,16 @@ app.get("/api/characters", async (req, res) => {
                 location: json.LocationType || "Unknown",
                 partySize: json.NPCForces?.PartySize || 0,
                 status: charState.status || "idle",
-                hasPersonality: !!json.AIGeneratedPersonality
+                hasPersonality: !!json.AIGeneratedPersonality,
+                faction: faction
              });
           }
         } catch(e) {}
       }
     }
     res.json({ characters, campaignPath });
-  } catch (e) {
-    res.json({ characters: [], error: e.message });
+  } catch (e: any) {
+    res.json({ characters: [], campaignPath: "", error: e.message || "Unknown error" });
   }
 });
 
@@ -658,10 +726,20 @@ app.get("/api/characters/:id", async (req, res) => {
     
     // The exact id key might be original targetId or the found one, but since we parsed it we can use its StringId or filename
     const actualId = path.basename(resolved.filePath, ".json");
+    
+    // Read meta factions
+    let customFaction = null;
+    try {
+        const metaFile = path.join(campaignPath, "meta_factions.json");
+        const metaFactions = JSON.parse(await fs.readFile(metaFile, "utf-8"));
+        const cleanName = (jsonData.Name || jsonData.StringId).replace(/\s*\(.*?\)/g, "").trim();
+        customFaction = metaFactions[cleanName];
+    } catch(e) {}
 
     res.json({ 
        json: jsonData,
-       state: stateData[actualId] || {}
+       state: stateData[actualId] || {},
+       metaFaction: customFaction
     });
   } catch(e: any) {
     res.status(404).json({ error: e.message || "Character not found" });
@@ -746,7 +824,7 @@ Respond ONLY with a valid JSON object matching this schema. Do not include markd
     const apiKey = configObj.utils_api_key || configObj.api_key;
     if (apiKey) {
       const tBaseUrl = configObj.utils_base_url || configObj.base_url || "https://api.deepseek.com";
-      const apiUrl = tBaseUrl.endsWith('/') ? `${tBaseUrl}chat/completions` : `${tBaseUrl}/chat/completions`;
+      const apiUrl = getOpenAICompatibleUrl(tBaseUrl);
       const aiModel = configObj.utils_model || configObj.model || "deepseek-chat";
 
       const response = await fetch(apiUrl, {
@@ -839,7 +917,7 @@ app.get("/api/lore/:id", async (req, res) => {
     
     if (apiKey) {
       const tBaseUrl = apiCfg.url;
-      const apiUrl = tBaseUrl.endsWith('/') ? `${tBaseUrl}chat/completions` : `${tBaseUrl}/chat/completions`;
+      const apiUrl = getOpenAICompatibleUrl(tBaseUrl);
 
       const response = await fetch(apiUrl, {
         method: "POST",
