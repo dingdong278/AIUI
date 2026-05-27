@@ -1048,9 +1048,13 @@ def auto_generate_personality(npc_json: dict, npc_string_id: str, filepath: Path
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3,
-            max_tokens=1500
+            max_tokens=3000
         )
         
+        if resp.choices[0].finish_reason == "length":
+            logger.error(f"【自动人设补全】生成截断 (finish_reason: length) {name} ({npc_string_id})，请检查 Max Tokens 或稍后重试。")
+            return False
+
         reply_text = resp.choices[0].message.content.strip()
         if reply_text.startswith("```"):
             lines = reply_text.split('\n')

@@ -930,7 +930,7 @@ Respond ONLY with a valid JSON object matching this schema. Do not include markd
           model: aiModel,
           messages: [{ role: "user", content: prompt }],
           temperature: 0.3,
-          max_tokens: 2500
+          max_tokens: 4000
         })
       });
 
@@ -939,13 +939,14 @@ Respond ONLY with a valid JSON object matching this schema. Do not include markd
          throw new Error("API response failed: " + errText);
       }
       const responseData = await response.json();
+      
+      if (responseData.choices?.[0]?.finish_reason === "length") {
+          throw new Error("AI 生成被截断，请重试或联系管理员增加 max_tokens");
+      }
+      
       resultText = responseData.choices?.[0]?.message?.content;
       if (!resultText) {
-          if (responseData.choices?.[0]?.finish_reason === "length") {
-              throw new Error("AI 生成被截断 (finish_reason: length). 请检查 Max Tokens 配置或稍后重试。响应数据: " + JSON.stringify(responseData));
-          } else {
-              throw new Error("API 返回了空内容。响应数据: " + JSON.stringify(responseData));
-          }
+          throw new Error("API 返回了空内容。响应数据: " + JSON.stringify(responseData));
       }
     } else {
       if (!process.env.GEMINI_API_KEY) {
@@ -959,7 +960,7 @@ Respond ONLY with a valid JSON object matching this schema. Do not include markd
           responseMimeType: "application/json",
         }
       });
-      resultText = response.text() || "{}";
+      resultText = response.text || "{}";
     }
 
     // Strip markdown if the AI didn't follow instructions
@@ -977,9 +978,9 @@ Respond ONLY with a valid JSON object matching this schema. Do not include markd
     jsonData.AIGeneratedBackstory = generated.AIGeneratedBackstory || jsonData.AIGeneratedBackstory;
     jsonData.AIGeneratedSpeechQuirks = generated.AIGeneratedSpeechQuirks || jsonData.AIGeneratedSpeechQuirks;
 
-    await fs.writeFile(filePath, JSON.stringify(jsonData, null, 2), "utf-8");
+    await fs.writeFile(resolved.filePath, JSON.stringify(jsonData, null, 2), "utf-8");
     const syncFile = path.join(campaignPath, "_chatsynco_sync.txt");
-    await fs.writeFile(syncFile, path.resolve(filePath), "utf-8");
+    await fs.writeFile(syncFile, path.resolve(resolved.filePath), "utf-8");
     
     res.json({ success: true, updated: generated });
   } catch(e: any) {

@@ -564,7 +564,7 @@ export default function CharacterDetail({ id, onBack }: any) {
                   icon={<Brain size={18} className="text-stone-800" />}
                   action={
                     <button
-                      onClick={handleGeneratePersonality}
+                      onClick={() => handleGeneratePersonality()}
                       disabled={generatingPersonality}
                       className="flex items-center space-x-1.5 text-xs font-sans font-medium px-3 py-1 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-lg transition-colors border border-amber-300 disabled:opacity-50"
                     >
