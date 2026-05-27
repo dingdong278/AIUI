@@ -1,20 +1,58 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# 权力之网 (AI Influence Dashboard)
 
-# Run and deploy your AI Studio app
+本项目是基于 `React` 和 `Node.js (Express)` 构建的 Web 控制台应用程序，专为《骑马与砍杀2：霸主》相关 MOD **AI Influence (冰与火之歌/权力的游戏 扩展版)** 及配套的 Python 推演引擎（`engine.py`）设计，用于辅助生成、修改和可视化游戏内 NPC 的 AI 人设、对话历史、派系关系和深层潜意识。
 
-This contains everything you need to run your app locally.
+## ✨ 核心功能
 
-View your app in AI Studio: https://ai.studio/apps/dd664611-f3c0-4467-ab3d-812863ff6253
+* **角色名册与档案管理**：自动扫描游戏存档文件夹（如 `save_data/npc_lives` 等目录），列出游戏事件中活跃的领主及 NPC，实时监测他们的情绪、派系和心境状态。
+* **人设/Lore 补全与编辑**：通过对接 AI 服务（支持 OpenAI 兼容接口，例如 DeepSeek 等大语言模型），基于原著考据生成角色人设、背景故事并一键更新到 MOD 的本地文件中。
+* **权力之网 (基于大模型的关系网络拓扑)**：挖掘核心人物之间的复杂关系网络（家族、仇属、盟约等）。支持根据关系图谱自动为缺失家族信息的 NPC 分配对应原著派系。
+* **飞鸽传书机制 (Raven Messaging)**：允许在 Web 界面作为玩家或上帝视角直接向领主发送“飞鸽传书”，将交互内容存入收件箱/发件箱，直接引导底层 AI 引擎响应并推动事件更新。
+* **无侵入的分层数据存储**：不破坏 AI Influence 模组原生生成的 JSON，采用解耦的方式存储非原生数据（如：使用 `meta_factions.json` 单独记录派系分类，使用 `lore.txt` 记录背景拓展等），避免数据受到模组重载时的非法内容校验屏蔽。
 
-## Run Locally
+## 🚀 快速启动
 
-**Prerequisites:**  Node.js
+### 运行环境
+- Node.js (推荐 18.x 或以上版本)
+- 本地机器需留存真实的游戏存档文件以供监听解析。
 
+### 1. 安装依赖
+```bash
+npm install
+```
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+### 2. 开发模式运行
+```bash
+# 自动启动前端 Vite 环境与基于 tsx 的 Express 服务
+npm run dev
+```
+
+### 3. 生产环境构建与运行
+```bash
+# 将前端静态资源捆绑到 dist 目录，并将后端构建为 CommonJS Server
+npm run build 
+
+# 运行最终的生产版本服务器
+npm run start
+```
+默认程序将运行并监听于 `http://localhost:3000`。
+
+## ⚙️ 配置说明 (学士卷轴)
+启动应用后，通过底部的**配置菜单 (学士卷轴)** 配置以下核心参数：
+1. **游戏存档目录寻址 (Base Path)**：
+   指向带有游戏导出或存盘内容的 MOD 根路径。示例：
+   `E:\SteamLibrary\steamapps\common\Mount & Blade II Bannerlord\Modules\AIInfluence\save_data`
+   *(注意：如果使用的是云端/在线体验版环境，可能无法直接读取本机的绝对路径存档。请将本服务全量下载到本机后运行以获得完整版功能。)*
+2. **AI 服务端设置**：
+   设定生成回复、补充人设所需的 OpenAI 兼容 API 地址（Base URL）、模型名称（Model）及 API 访问秘钥（API Key）。可搭配任意主流模型使用。
+
+## 📂 项目结构指南
+
+* **`/src`**: React 客户端单页应用（SPA）代码。包含 `CharactersView` (领主名册)、`CharacterDetailView` (详情干预面板)、`ConfigView` (配置面板) 等视图。
+* **`/server.ts`**: Node.js 后端守护进程。提供用于读取文件系统、调用大模型 API 并封装接口、以及派系和记录缓存管理的服务端 API。
+* **`engine.py`**: 原生 Python 推演沙盒脚本（部分作为背景推演任务运行），涵盖底层多轮对话、世界事件注入和 Prompt 管理。
+
+## ⚠️ 防呆与开发须知
+如果要在客户端中新增环境或状态字段对人物进行修饰，**请务必注意**：
+- 不要将额外无关或自定义字段注入到 MOD 引擎导出的原本 `npc.json` 当中，这会被 C# 引擎认定为非法内容而重载。
+- 额外的游戏增强数据请依赖自身目录（例如新建单独的 `*.json` 或使用文件缓存处理），然后于 React 侧呈现时合并即可。

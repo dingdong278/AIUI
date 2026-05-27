@@ -752,6 +752,8 @@ app.post("/api/characters/:id", async (req, res) => {
     const resolved = await resolveCharacterId(campaignPath, req.params.id);
     
     await fs.writeFile(resolved.filePath, JSON.stringify(req.body, null, 2), "utf-8");
+    const syncFile = path.join(campaignPath, "_chatsynco_sync.txt");
+    await fs.writeFile(syncFile, path.resolve(resolved.filePath), "utf-8");
     res.json({ success: true });
   } catch(e) {
     res.status(500).json({ error: "Failed to update character JSON" });
@@ -885,6 +887,8 @@ Respond ONLY with a valid JSON object matching this schema. Do not include markd
     jsonData.AIGeneratedSpeechQuirks = generated.AIGeneratedSpeechQuirks || jsonData.AIGeneratedSpeechQuirks;
 
     await fs.writeFile(filePath, JSON.stringify(jsonData, null, 2), "utf-8");
+    const syncFile = path.join(campaignPath, "_chatsynco_sync.txt");
+    await fs.writeFile(syncFile, path.resolve(filePath), "utf-8");
     
     res.json({ success: true, updated: generated });
   } catch(e: any) {

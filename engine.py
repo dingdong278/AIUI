@@ -148,6 +148,13 @@ def safe_load_json(filepath: Path, default=None):
 def save_json(filepath: Path, data: dict):
     filepath.parent.mkdir(parents=True, exist_ok=True)
     with open(filepath, 'w', encoding='utf-8') as f: json.dump(data, f, indent=2, ensure_ascii=False)
+
+def notify_sync(filepath: Path):
+    if not NPC_FOLDER: return
+    sync_file = NPC_FOLDER / "_chatsynco_sync.txt"
+    abs_path = filepath.resolve().as_posix()
+    with open(sync_file, 'w', encoding='utf-8') as f: f.write(abs_path)
+
 def load_text(filepath: Path) -> str:
     with open(filepath, 'r', encoding='utf-8') as f: return f.read()
 def save_text(filepath: Path, text: str):
@@ -186,9 +193,24 @@ def find_npc_json(npc_string_id: str) -> Optional[Path]:
     return None
 
 g_id_to_name, g_name_to_id, g_settlement_name_to_id, g_settlement_id_to_name, g_leaders_set = {}, {}, {}, {}, set()
+g_name_to_faction = {}
+g_faction_members = {}
 
 def build_indices():
     g_id_to_name.clear(); g_name_to_id.clear(); g_leaders_set.clear()
+    g_name_to_faction.clear(); g_faction_members.clear()
+    
+    meta_file = NPC_FOLDER / "meta_factions.json"
+    if meta_file.exists():
+        try:
+            meta_data = load_json(meta_file)
+            for name, faction in meta_data.items():
+                g_name_to_faction[name] = faction
+                if faction not in g_faction_members:
+                    g_faction_members[faction] = set()
+        except Exception as e:
+            logger.error(f"Error loading meta_factions.json: {e}")
+
     for f in list_npc_files(NPC_FOLDER):
         try:
             d = load_json(f)
@@ -197,6 +219,10 @@ def build_indices():
             if name and sid: 
                 g_id_to_name[sid] = name
                 g_name_to_id[name] = sid
+                clean_name = re.sub(r'\s*\(.*?\)', '', name).strip()
+                faction = g_name_to_faction.get(clean_name)
+                if faction:
+                    g_faction_members[faction].add(sid)
             
             # 防御性补充：如果文件名里带有带括号的大逃杀ID，也提取出来做备用映射
             pure = re.search(r'\(([^)]+)\)', f.stem)
@@ -317,7 +343,7 @@ def get_global_leadership_text(current_day: float) -> str:
                     reason = "权力交接" if last_chg.get("ChangeReason") == "succession" else last_chg.get("ChangeReason", "未知原因")
                     changes.append(f"【{date}】{k_name}的统治者已更替！前任 {prev} 下台/身故，新任为 {leader} ({reason})。")
         
-        res = "目前卡拉迪亚各国领袖：" + "； ".join(lines) + "。"
+        res = "目前维斯特洛与世界各国领袖：" + "； ".join(lines) + "。"
         if changes: res += "\n近期震撼大陆的王权更替：" + "\n".join(changes[-3:])
         return res
     except: return ""
@@ -342,6 +368,7 @@ def process_outbox(current_day: float, engine_state: dict) -> int:
         entry = f"[收到来信] 来自：{player_name}\n正文：{content}\n[sent_via_raven_at_days={current_day}]"
         npc_json.setdefault('ConversationHistory', []).append(entry)
         save_json(npc_json_path, npc_json)
+        notify_sync(npc_json_path)
         real_key = npc_json_path.stem
         if real_key in engine_state:
             engine_state[real_key]["has_new_letters"] = True
@@ -520,6 +547,9 @@ def build_prompt(npc_json: dict, npc_string_id: str, current_day: float, new_con
     )
 
     force_text = "\n\n【系统提示】你已经沉默太久了，请至少写点什么。不要输出NONE。" if force_output else ""
+    if not new_convs and not new_events and not bg_letters_text.strip():
+        force_text += "\n【系统提示】目前世界风平浪静，没有任何新的对话、事件或来信发生。严格遵守你的记忆与以上时间线，请仅仅根据你当前心境进行一段简短的内心独白或日常思考，严格杜绝编造目前不存在的冲突或交互！如果没有特别的想法就简短带过。"
+    
     return WORLD_CONTEXT + "\n\n" + profile + diary_block + "\n\n" + memory + conv_block + bg_letters_block + event_block + world_event_block + status + footer + force_text
 
 # ================= AI 调用 =================
@@ -819,6 +849,7 @@ def safe_write_to_json(npc_json: dict, npc_string_id: str, npc_filepath: Path, r
 
     if modified: 
         save_json(npc_filepath, npc_json)
+        notify_sync(npc_filepath)
 
 def write_npc_communication_to_receiver(receiver_id: str, sender_name: str, content: str, current_day: float, expect_reply: bool = None):
     inbox_dir = OUR_FOLDER / "inbox"
@@ -881,26 +912,33 @@ _FACTION_MAPPING = {
 }
 
 def is_allied_relevant(npc_json: dict) -> bool:
-    allied = _cfg.get("allied_faction", "")
-    if not allied or not _cfg.get("only_allied_simulation", False): return True
+    npc_string_id = npc_json.get("StringId", "")
+    if not npc_string_id: return False
     
-    if npc_json.get("IsInPlayerParty") or npc_json.get("IsWithPlayer"): return True
-    if npc_json.get("StringId", "") in g_leaders_set: return True
+    exclude_ids = _cfg.get("exclude_ids", [])
+    if npc_string_id in exclude_ids:
+        return False
+        
+    force_simulate_ids = _cfg.get("force_simulate_ids", [])
+    if npc_string_id in force_simulate_ids:
+        return True
+        
+    allied_faction = _cfg.get("allied_faction", "")
+    if not allied_faction or not _cfg.get("only_allied_simulation", False): 
+        return True
+        
+    npc_name = str(npc_json.get("Name") or "").strip()
+    npc_name_clean = re.sub(r'\s*\(.*?\)', '', npc_name).strip()
+    faction = g_name_to_faction.get(npc_name_clean)
     
-    keywords = _FACTION_MAPPING.get(allied, [])
-    if not keywords: return True
-    
-    text_to_search = (
-        str(npc_json.get("Name", "")) + 
-        str(npc_json.get("LocationType", "")) + 
-        str(npc_json.get("CharacterDescription", ""))
-    )
-    for kw in keywords:
-        if kw in text_to_search:
-            return True
-            
-    for ev in npc_json.get("RecentEvents", [])[-3:]:
-        if any(kw in str(ev.get("Description", "")) for kw in keywords):
+    if faction == allied_faction:
+        return True
+        
+    # Also fallback to mapping keyword check just in case meta_factions is missing some
+    keywords = _FACTION_MAPPING.get(allied_faction, [])
+    if keywords:
+        text_to_search = str(npc_json.get("LocationType", "")) + str(npc_json.get("CharacterDescription", ""))
+        if any(kw in text_to_search for kw in keywords):
             return True
             
     return False
@@ -911,12 +949,50 @@ def classify_npc(filepath: Path) -> Tuple[str, str, Optional[int]]:
     sid = data.get("StringId", "")
     if not sid: return ("", "villager", None)
     
-    if not is_allied_relevant(data):
-        return (sid, "skipped_by_faction", None)
+    is_allied = is_allied_relevant(data)
+    
+    is_companion_or_party = data.get("IsCompanion", False) or data.get("IsInPlayerParty", False)
+    should_simulate_companions = _cfg.get("always_simulate_companions", False)
+    
+    if not is_allied:
+        if is_companion_or_party and should_simulate_companions:
+            pass # continue to normal classification
+        else:
+            return (sid, "skipped_by_faction", None)
         
     if sid in g_leaders_set: return (sid, "ruler", 2500)
-    if data.get("IsInPlayerParty") or has_personality(data): return (sid, "active", 2000)
+    if has_personality(data): return (sid, "active", 2000)
+    if should_simulate_companions and is_companion_or_party: return (sid, "active", 2000)
     return (sid, "villager", None)
+
+def enrich_profile_with_family(npc_json: dict, npc_string_id: str):
+    profile_path = get_profile_path(npc_string_id)
+    if not profile_path.exists(): return
+    
+    profile_text = load_text(profile_path)
+    if "【家族/势力信息】" in profile_text: return
+    
+    npc_name = str(npc_json.get("Name") or "").strip()
+    npc_name_clean = re.sub(r'\s*\(.*?\)', '', npc_name).strip()
+    faction = g_name_to_faction.get(npc_name_clean)
+    if not faction: return
+    
+    members_ids = g_faction_members.get(faction, set())
+    last_seen_friends = npc_json.get("LastSeenFriends", {})
+    
+    family_names = []
+    for mid in members_ids:
+        if mid != npc_string_id and mid in last_seen_friends:
+            fname = g_id_to_name.get(mid)
+            if fname: family_names.append(fname)
+            
+    family_str = f"\n\n【家族/势力信息】\n你属于势力/家族 [{faction}]。"
+    if family_names:
+        family_str += f"\n基于你的记忆，你的已知家族成员/同阵营关键人物包括（你见过他们）：{', '.join(family_names)}。"
+    else:
+        family_str += f"\n你尚未结识任何其他族人或阵营核心成员。"
+        
+    save_text(profile_path, profile_text + family_str)
 
 def process_npc(filepath: Path, current_day: float, engine_state: dict, cost_tracker: CostTracker, world_event_updates: dict, max_tokens: int) -> dict:
     npc_string_id = filepath.stem
@@ -932,6 +1008,8 @@ def process_npc(filepath: Path, current_day: float, engine_state: dict, cost_tra
     if not profile_path.exists():
         if has_personality(npc_json): initialize_npc_profile(npc_json, npc_string_id)
         else: return {**stats, "skipped": 1} 
+            
+    enrich_profile_with_family(npc_json, npc_string_id)
             
     try:
         if "[屏蔽]" in profile_path.read_text(encoding='utf-8'): return {**stats, "skipped": 1}
@@ -1078,6 +1156,16 @@ def main_loop():
 
     try:
         while True:
+            global _cfg, API_KEY, BASE_URL, MODEL
+            new_cfg = get_engine_config()
+            if new_cfg:
+                _cfg = new_cfg
+                API_KEY = _cfg.get("api", {}).get("engine", {}).get("key") or _cfg.get("api_key") or os.getenv("DEEPSEEK_API_KEY", "sk-7d2a561839574a19823228d28ee3b355")
+                BASE_URL = _cfg.get("api", {}).get("engine", {}).get("url") or _cfg.get("base_url") or os.getenv("API_BASE_URL", "https://api.deepseek.com")
+                if "generativelanguage.googleapis.com" in BASE_URL:
+                    BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+                MODEL = _cfg.get("api", {}).get("engine", {}).get("model") or _cfg.get("model") or os.getenv("API_MODEL", "deepseek-v4-flash")
+                
             current_day = get_latest_game_day()
             
             # 延缓频繁推进 (14天)
