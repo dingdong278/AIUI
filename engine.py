@@ -350,7 +350,26 @@ def process_outbox(current_day: float, engine_state: dict) -> int:
     return processed
 
 # ================= Prompt 组装与 AI 调用 =================
+def days_to_aegon(days: float) -> str:
+    aegon_year = 298 + int(days // 84)
+    moon_turn = int((days % 84) // 7) + 1
+    period = "上旬" if (days % 84) % 7 < 2 else "中旬" if (days % 84) % 7 < 5 else "下旬"
+    return f"伊耿历{aegon_year}年第{moon_turn}月{period}"
+
+def is_trivial_event(event: dict) -> bool:
+    etype = event.get("Type", "")
+    desc = event.get("Description", "").lower()
+    if etype == "Battle":
+        if "bandits" in desc or "looters" in desc or "劫匪" in desc or "匪徒" in desc:
+            if "lost" not in desc or "lost 0" in desc:
+                return True # minor skirmish with no real lore consequence
+            if "defeated" in desc and ("you" in desc or "my" in desc or "our" in desc):
+                pass 
+    if "long time no see" in desc or "haven't seen" in desc: return True 
+    return False
+
 def build_prompt(npc_json: dict, npc_string_id: str, current_day: float, new_convs: List[str], new_events: List[dict], world_events_text: str = "", force_output: bool = False, bg_letters_text: str = "") -> str:
+    new_events = [e for e in new_events if not is_trivial_event(e)]
     if not get_profile_path(npc_string_id).exists(): initialize_npc_profile(npc_json, npc_string_id)
     if not get_memory_chain_path(npc_string_id).exists(): initialize_memory_chain(npc_json, npc_string_id, current_day)
     
@@ -399,8 +418,8 @@ def build_prompt(npc_json: dict, npc_string_id: str, current_day: float, new_con
             sorted_ev = sorted(ev_list, key=lambda x: x.get("EventTimeDays", 0))
             for e in sorted_ev[-3:]:
                 desc_short = e.get('Description', '')[:150]
-                event_lines.append(f"  - Day {int(e.get('EventTimeDays', current_day))}: {desc_short}...")
-        event_block = "\n[新个人事件]\n" + "\n".join(event_lines)
+                event_lines.append(f"  - {days_to_aegon(e.get('EventTimeDays', current_day))}: {desc_short}...")
+        event_block = "\n[新个人事件(已被浓缩换算为伊耿历)]\n" + "\n".join(event_lines)
     else:
         event_block = ""
     
@@ -836,11 +855,54 @@ def get_world_secrets_text(npc_json: dict) -> str:
 def is_dead(npc_json: dict) -> bool: 
     return any(npc_json.get(k) is not None for k in ["PendingDeath", "RoleplayDeathReason", "KillerStringId"]) or npc_json.get("IsAlive") is False
 
+_FACTION_MAPPING = {
+    "Stark": ["史塔克", "北境"],
+    "Lannister": ["兰尼斯特", "西境"],
+    "Targaryen": ["坦格利安", "龙石岛", "无垢者"],
+    "Baratheon": ["拜拉席恩", "风暴地", "龙石岛"],
+    "Tyrell": ["提利尔", "河湾"],
+    "Martell": ["马泰尔", "多恩"],
+    "Greyjoy": ["葛雷乔伊", "铁群岛"],
+    "Tully": ["徒利", "河间"],
+    "Arryn": ["艾林", "谷地"],
+    "Nightwatch": ["守夜人", "黑城堡", "长城"],
+    "Wildlings": ["自由民", "野人", "塞外"]
+}
+
+def is_allied_relevant(npc_json: dict) -> bool:
+    allied = _cfg.get("allied_faction", "")
+    if not allied or not _cfg.get("only_allied_simulation", False): return True
+    
+    if npc_json.get("IsInPlayerParty") or npc_json.get("IsWithPlayer"): return True
+    if npc_json.get("StringId", "") in g_leaders_set: return True
+    
+    keywords = _FACTION_MAPPING.get(allied, [])
+    if not keywords: return True
+    
+    text_to_search = (
+        str(npc_json.get("Name", "")) + 
+        str(npc_json.get("LocationType", "")) + 
+        str(npc_json.get("CharacterDescription", ""))
+    )
+    for kw in keywords:
+        if kw in text_to_search:
+            return True
+            
+    for ev in npc_json.get("RecentEvents", [])[-3:]:
+        if any(kw in str(ev.get("Description", "")) for kw in keywords):
+            return True
+            
+    return False
+
 def classify_npc(filepath: Path) -> Tuple[str, str, Optional[int]]:
     try: data = load_json(filepath)
     except: return ("", "villager", None)
     sid = data.get("StringId", "")
     if not sid: return ("", "villager", None)
+    
+    if not is_allied_relevant(data):
+        return (sid, "skipped_by_faction", None)
+        
     if sid in g_leaders_set: return (sid, "ruler", 2500)
     if data.get("IsInPlayerParty") or has_personality(data): return (sid, "active", 2000)
     return (sid, "villager", None)
@@ -953,7 +1015,13 @@ def run_analysis_round(current_day: float, engine_state: dict, cost_tracker: Cos
     tier1_files, villager_files = [], []
     for f in list_npc_files(NPC_FOLDER):
         sid, tier, _ = classify_npc(f)
-        if sid: (tier1_files if tier in ("ruler", "active") else villager_files).append(f)
+        if sid:
+            if tier == "skipped_by_faction":
+                stats["skipped"] += 1
+            elif tier in ("ruler", "active"): 
+                tier1_files.append(f)
+            else:
+                villager_files.append(f)
 
     for f in tqdm(tier1_files, desc="深度推演重要角色"):
         if cost_tracker.is_budget_exceeded(): break
