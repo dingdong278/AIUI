@@ -149,6 +149,24 @@ app.get("/api/prompt_config", async (req, res) => {
 app.post("/api/prompt_config", async (req, res) => {
   try {
     await fs.writeFile(PROMPT_CONFIG_FILE, JSON.stringify(req.body, null, 2), "utf-8");
+    
+    // Sync to config.json
+    let configStr = "{}";
+    try { configStr = await fs.readFile(configPath, "utf-8"); } catch(e){}
+    let config: any = {};
+    try { config = JSON.parse(configStr); } catch(e){}
+
+    if (!config.prompts) config.prompts = {};
+    if (req.body.system_prompt) {
+      config.prompts.systemTemplate = req.body.system_prompt;
+    }
+    const worldContextBlock = req.body.blocks?.find((b: any) => b.id === "world_context");
+    if (worldContextBlock && worldContextBlock.content) {
+      config.prompts.worldContext = worldContextBlock.content;
+    }
+
+    await fs.writeFile(configPath, JSON.stringify(config, null, 2), "utf-8");
+
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Failed to save prompt config" });
@@ -368,9 +386,9 @@ app.post("/api/realm/generate", async (req, res) => {
     // Retrieve some logs
     let recentEvents = "无近期事件记录...";
     try {
-      const basePath = configObj.base_path;
-      if (basePath) {
-        const eventsPath = path.join(basePath, "dynamic_events.json");
+      const campaignPath = await getActiveNpcPath();
+      if (campaignPath) {
+        const eventsPath = path.join(campaignPath, "dynamic_events.json");
         const eventsStr = await fs.readFile(eventsPath, "utf-8");
         const evList = JSON.parse(eventsStr);
         // It might be an array of strings or objects. We handle both just in case:
@@ -438,6 +456,17 @@ app.post("/api/realm/generate", async (req, res) => {
   }
 });
 
+const MAIDEN_HISTORY_FILE = path.join(process.cwd(), "maiden_history.json");
+
+app.get("/api/maiden/history", async (req, res) => {
+  try {
+    const data = await fs.readFile(MAIDEN_HISTORY_FILE, "utf-8");
+    res.json({ history: JSON.parse(data) });
+  } catch(e) {
+    res.json({ history: [] });
+  }
+});
+
 app.post("/api/maiden/chat", async (req, res) => {
   try {
     const { messages } = req.body;
@@ -457,9 +486,9 @@ app.post("/api/maiden/chat", async (req, res) => {
     // Retrieve some logs
     let recentEvents = "无近期事件记录...";
     try {
-      const basePath = configObj.base_path;
-      if (basePath) {
-        const eventsPath = path.join(basePath, "dynamic_events.json");
+      const campaignPath = await getActiveNpcPath();
+      if (campaignPath) {
+        const eventsPath = path.join(campaignPath, "dynamic_events.json");
         const eventsStr = await fs.readFile(eventsPath, "utf-8");
         const evList = JSON.parse(eventsStr);
         if (Array.isArray(evList)) {
@@ -482,8 +511,11 @@ app.post("/api/maiden/chat", async (req, res) => {
       const campaignPath = await getActiveNpcPath();
       const files = await fs.readdir(campaignPath).catch(() => []);
       
-      const charThoughtsList = [];
+      let allDiaries: { npcName: string; day: number; content: string }[] = [];
+      let scannedCount = 0;
+
       for (const file of files) {
+        if (scannedCount >= 50) break;
         if (file.endsWith(".json")) {
            try {
               const data = await fs.readFile(path.join(campaignPath, file), "utf-8");
@@ -496,11 +528,17 @@ app.post("/api/maiden/chat", async (req, res) => {
                   if (privateJson.SecretDiaries) {
                      const keys = Object.keys(privateJson.SecretDiaries);
                      if (keys.length > 0) {
-                        const latestKey = keys[keys.length - 1];
-                        let content = privateJson.SecretDiaries[latestKey];
-                        // Clean it up a bit if it's too long
-                        if (content.length > 600) content = content.substring(0, 600) + "...";
-                        charThoughtsList.push(`[${json.Name || json.StringId}] 祈祷/静思预兆：\n${content}`);
+                        scannedCount++;
+                        const latestKeys = keys.slice(-3);
+                        for (const k of latestKeys) {
+                           let dayNum = parseFloat(k.replace(/[^\d.]/g, ''));
+                           if (isNaN(dayNum)) dayNum = 0;
+                           allDiaries.push({
+                              npcName: json.Name || json.StringId,
+                              day: dayNum,
+                              content: privateJson.SecretDiaries[k]
+                           });
+                        }
                      }
                    }
               } catch(pex) {}
@@ -508,8 +546,20 @@ app.post("/api/maiden/chat", async (req, res) => {
         }
       }
       
-      if (charThoughtsList.length > 0) {
-          thoughtsText = "\n\n【众生近期祈祷/静思卷宗(预言神力读取)】：\n" + charThoughtsList.slice(-15).join("\n");
+      allDiaries.sort((a, b) => b.day - a.day);
+      const latest8 = allDiaries.slice(0, 8);
+      
+      let accumulatedText = "";
+      for (const d of latest8) {
+         let content = d.content;
+         if (content.length > 800) content = content.substring(0, 800) + "...";
+         accumulatedText += `[${d.npcName} Day ${d.day}] 祈祷/静思预兆：\n${content}\n\n`;
+      }
+      
+      if (accumulatedText.length > 2500) accumulatedText = accumulatedText.substring(0, 2500) + "...";
+      
+      if (accumulatedText.length > 0) {
+          thoughtsText = "\n\n【众生近期祈祷/静思卷宗(预言神力读取)】：\n" + accumulatedText;
       }
     } catch(e) {}
 
@@ -542,7 +592,27 @@ app.post("/api/maiden/chat", async (req, res) => {
 
     if (!data.choices || !data.choices[0]) throw new Error("API返回错误: " + JSON.stringify(data));
 
-    res.json({ reply: data.choices[0].message.content.trim() });
+    const reply = data.choices[0].message.content.trim();
+    
+    // Save history
+    try {
+      const userMessage = messages[messages.length - 1]; // Only the latest we received
+      const toSave = [userMessage, { role: "assistant", content: reply }];
+      let currentHistory = [];
+      try { currentHistory = JSON.parse(await fs.readFile(MAIDEN_HISTORY_FILE, "utf-8")); } catch(e){}
+      
+      // We assume `messages` is just what was sent. But wait, `messages` in req.body already contains the full updated history from client EXCEPT the new assistant reply. We should just save the whole `messages` from req.body plus the new reply.
+      // Yes, saving the whole `messages` from frontend plus reply is best because it includes the correct ordering.
+      // We skip the first element if it was the hardcoded assistant greeting in frontend? No, front-end sends its whole history except system.
+      const historyToSave = [...messages, { role: "assistant", content: reply }];
+      // Keep only last 20 messages to prevent unbounded growth
+      const trimmedHistory = historyToSave.slice(-20);
+      await fs.writeFile(MAIDEN_HISTORY_FILE, JSON.stringify(trimmedHistory, null, 2), "utf-8");
+    } catch(e) {
+      console.error("Failed to save maiden history", e);
+    }
+
+    res.json({ reply });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Holy maiden is unavailable" });
   }
@@ -619,6 +689,26 @@ app.get("/api/priorities", async (req, res) => {
 app.post("/api/priorities", async (req, res) => {
   try {
     await fs.writeFile(prioritiesPath, JSON.stringify(req.body, null, 2), "utf-8");
+    
+    // Sync to config.json
+    const priorities = req.body;
+    let forceSimulateIds = [];
+    let excludeIds = [];
+    for (const [id, status] of Object.entries(priorities)) {
+        if (status === "force_active") forceSimulateIds.push(id);
+        if (status === "sleep") excludeIds.push(id);
+    }
+    
+    let configStr = "{}";
+    try { configStr = await fs.readFile(configPath, "utf-8"); } catch(e){}
+    let config: any = {};
+    try { config = JSON.parse(configStr); } catch(e){}
+
+    config.force_simulate_ids = forceSimulateIds;
+    config.exclude_ids = excludeIds;
+    
+    await fs.writeFile(configPath, JSON.stringify(config, null, 2), "utf-8");
+
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: "Failed to write priorities" });
@@ -823,11 +913,12 @@ Respond ONLY with a valid JSON object matching this schema. Do not include markd
 
     let resultText = "{}";
 
-    const apiKey = configObj.utils_api_key || configObj.api_key;
+    const apiCfg = await getResolvedApiConfig("lore");
+    const apiKey = apiCfg.key;
     if (apiKey) {
-      const tBaseUrl = configObj.utils_base_url || configObj.base_url || "https://api.deepseek.com";
+      const tBaseUrl = apiCfg.url || "https://api.deepseek.com";
       const apiUrl = getOpenAICompatibleUrl(tBaseUrl);
-      const aiModel = configObj.utils_model || configObj.model || "deepseek-chat";
+      const aiModel = apiCfg.model || "deepseek-chat";
 
       const response = await fetch(apiUrl, {
         method: "POST",

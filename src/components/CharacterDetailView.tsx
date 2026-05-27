@@ -155,6 +155,7 @@ export default function CharacterDetail({ id, onBack }: any) {
   useEffect(() => {
     fetchData();
     fetchSecrets();
+    fetchLore(); // load lore silently in background, won't spend tokens if cached
   }, [id]);
 
   useEffect(() => {

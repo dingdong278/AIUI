@@ -59,6 +59,7 @@ export default function ConfigView() {
         base_path: data.base_path || "",
         allied_faction: data.allied_faction || "",
         only_allied_simulation: !!data.only_allied_simulation,
+        always_simulate_companions: !!data.always_simulate_companions,
       };
       
       setConfig(merged);
@@ -254,6 +255,25 @@ export default function ConfigView() {
                </label>
                <p className="text-xs text-stone-500 leading-relaxed max-w-2xl mt-0.5">
                  开启后将强制“跳过”不相关家族领主的日常推演（除非被玩家标记为重点对象），极大降低无用API耗损，提升与玩家势力相关人物的运转极速。
+               </p>
+             </div>
+          </div>
+
+          <div className="flex items-start gap-2.5 pt-1.5">
+             <input
+               type="checkbox"
+               name="always_simulate_companions"
+               id="always_simulate_companions"
+               checked={!!config.always_simulate_companions}
+               onChange={handleBaseChange}
+               className="mt-1 h-4 w-4 rounded border-stone-300 text-stone-700 focus:ring-stone-500"
+             />
+             <div className="text-sm">
+               <label htmlFor="always_simulate_companions" className="font-semibold text-stone-800 cursor-pointer">
+                 始终推演玩家同伴 (Always Simulate Companions)
+               </label>
+               <p className="text-xs text-stone-500 leading-relaxed max-w-2xl mt-0.5">
+                 开启后，即便是处于极限冰火模式且不属于玩家亲近的势力，玩家家族队伍中的同伴和亲属也将强制进行每日推演。
                </p>
              </div>
           </div>

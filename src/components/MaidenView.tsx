@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Send, Loader, Sparkles } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
@@ -8,6 +8,20 @@ export default function MaidenView() {
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/maiden/history")
+      .then(r => r.json())
+      .then(data => {
+        if (data.history && data.history.length > 0) {
+          setMessages([
+            { role: "assistant", content: "愿七神的荣光照耀你，迷途的行者。我是侍奉光明的圣女，一直在倾听大陆的风声。你有什么关于旅途或权谋的疑惑？" },
+            ...data.history
+          ]);
+        }
+      })
+      .catch(console.error);
+  }, []);
 
   const handleSend = async () => {
     if (!input.trim() || loading) return;
