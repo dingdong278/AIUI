@@ -994,6 +994,94 @@ def enrich_profile_with_family(npc_json: dict, npc_string_id: str):
         
     save_text(profile_path, profile_text + family_str)
 
+g_auto_gen_count = 0
+
+def auto_generate_personality(npc_json: dict, npc_string_id: str, filepath: Path) -> bool:
+    global _cfg, g_auto_gen_count
+    
+    if g_auto_gen_count >= 3:
+        return False
+        
+    if str(npc_json.get("AIGeneratedPersonality") or "").strip():
+        return True
+        
+    name = str(npc_json.get("Name") or "未知")
+    gender = str(npc_json.get("Gender") or "unknown")
+    location = str(npc_json.get("LocationType") or "未知位置")
+    task = str(npc_json.get("CurrentTask") or "未知任务")
+    war_status = str(npc_json.get("WarStatus") or "和平")
+    
+    prompt = f"""你是一名《冰与火之歌》世界观专家。请为以下角色生成详细人设，用于骑士与砍杀2的NPC。
+
+角色名称: {name}
+性别: {gender}
+当前身份/位置: {location}（{task}）
+当前战争状态: {war_status}
+
+重要: 游戏中的时间线可能与原著不同，某些事件可能提前或延后。请根据给出的“当前身份”来推断角色的心理阶段和性格，不要拘泥于原著特定时间轴。
+
+请只返回一个JSON对象，包含以下字段，不要包含任何额外文字：
+{{
+  "AIGeneratedPersonality": "一段详细的心理描写，包括动机、恐惧、核心价值",
+  "AIGeneratedBackstory": "简明扼要的背景故事，反映其到达当前状态的关键事件",
+  "AIGeneratedSpeechQuirks": "一两句话描述其说话风格、常用词或比喻"
+}}
+"""
+
+    lore_api_key = _cfg.get("api", {}).get("lore", {}).get("key") or _cfg.get("utils_api_key")
+    lore_base_url = _cfg.get("api", {}).get("lore", {}).get("url") or _cfg.get("utils_base_url")
+    lore_model = _cfg.get("api", {}).get("lore", {}).get("model") or _cfg.get("utils_model")
+    
+    if not lore_api_key or not lore_base_url or not lore_model:
+        logger.warning(f"【自动人设补全】未配置学士(lore) API，跳过 {name} ({npc_string_id}) 的人设生成。")
+        return False
+        
+    try:
+        from openai import OpenAI
+        lore_client = OpenAI(api_key=lore_api_key, base_url=lore_base_url)
+        
+        logger.info(f"【自动人设补全】开始为 {name} ({npc_string_id}) 生成人设...")
+        resp = lore_client.chat.completions.create(
+            model=lore_model,
+            messages=[
+                {"role": "system", "content": "你是一个严格输出JSON的助手，不能有任何额外文字或markdown代码块标记（如```json）。"},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=1500
+        )
+        
+        reply_text = resp.choices[0].message.content.strip()
+        if reply_text.startswith("```"):
+            lines = reply_text.split('\n')
+            if lines[0].startswith("```"): lines = lines[1:]
+            if lines and lines[-1].startswith("```"): lines = lines[:-1]
+            reply_text = '\n'.join(lines).strip()
+            
+        import json
+        result = json.loads(reply_text)
+        
+        personality = result.get("AIGeneratedPersonality", "")
+        backstory = result.get("AIGeneratedBackstory", "")
+        speech_quirks = result.get("AIGeneratedSpeechQuirks", "")
+        
+        if personality:
+            npc_json["AIGeneratedPersonality"] = personality
+            npc_json["AIGeneratedBackstory"] = backstory
+            npc_json["AIGeneratedSpeechQuirks"] = speech_quirks
+            
+            save_json(filepath, npc_json)
+            notify_sync(filepath)
+            logger.info(f"【自动人设补全】成功生成 {name} ({npc_string_id}) 的人设！")
+            g_auto_gen_count += 1
+            return True
+            
+        return False
+        
+    except Exception as e:
+        logger.error(f"【自动人设补全】生成失败 {name} ({npc_string_id}): {e}")
+        return False
+
 def process_npc(filepath: Path, current_day: float, engine_state: dict, cost_tracker: CostTracker, world_event_updates: dict, max_tokens: int) -> dict:
     npc_string_id = filepath.stem
     try:
@@ -1006,8 +1094,13 @@ def process_npc(filepath: Path, current_day: float, engine_state: dict, cost_tra
 
     profile_path = get_profile_path(npc_string_id)
     if not profile_path.exists():
-        if has_personality(npc_json): initialize_npc_profile(npc_json, npc_string_id)
-        else: return {**stats, "skipped": 1} 
+        if not has_personality(npc_json):
+            if is_allied_relevant(npc_json):
+                generated = auto_generate_personality(npc_json, npc_string_id, filepath)
+                if not generated: return {**stats, "skipped": 1}
+            else:
+                return {**stats, "skipped": 1}
+        initialize_npc_profile(npc_json, npc_string_id)
             
     enrich_profile_with_family(npc_json, npc_string_id)
             
@@ -1094,6 +1187,8 @@ def get_latest_game_day() -> float:
     return max_day
 
 def run_analysis_round(current_day: float, engine_state: dict, cost_tracker: CostTracker, stats: dict):
+    global g_auto_gen_count
+    g_auto_gen_count = 0
     (OUR_FOLDER / "json_backups").mkdir(parents=True, exist_ok=True)
     for f in list_npc_files(NPC_FOLDER):
         if has_personality(load_json(f)): save_json(OUR_FOLDER / "json_backups" / f.name, load_json(f))
