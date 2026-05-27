@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from "react";
-import { ArrowLeft, Save, Code, History, Brain, Heart, MapPin, Database, Users, BookOpen, Loader, Shield, Sparkles, Plus, Trash2, Key } from "lucide-react";
+import { ArrowLeft, Save, Code, History, Brain, Heart, MapPin, Database, Users, BookOpen, Loader, Shield, Sparkles, Plus, Trash2, Key, Settings } from "lucide-react";
+import ApiSettingsModal from "./ApiSettingsModal";
 
 export default function CharacterDetail({ id, onBack }: any) {
   const [data, setData] = useState<any>(null);
   const [state, setState] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  
+  const [settingsOpen, setSettingsOpen] = useState(false);
   
   // Lore management
   const [lore, setLore] = useState("");
@@ -23,6 +26,12 @@ export default function CharacterDetail({ id, onBack }: any) {
   const [rawText, setRawText] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
+  const [generatingPersonality, setGeneratingPersonality] = useState(false);
+
+  // Send message
+  const [outboxMsg, setOutboxMsg] = useState("");
+  const [sendingMsg, setSendingMsg] = useState(false);
+  const [sendFeedback, setSendFeedback] = useState("");
 
   const fetchData = async () => {
     try {
@@ -51,11 +60,12 @@ export default function CharacterDetail({ id, onBack }: any) {
     }
   };
 
-  const fetchLore = async () => {
+  const fetchLore = async (force = false) => {
     setLoreLoading(true);
     try {
       const clean = data?.Name ? data.Name.replace(/\s*\(.*?\)/g, "").trim() : id;
-      const res = await fetch(`/api/lore/${encodeURIComponent(clean)}`);
+      const url = `/api/lore/${encodeURIComponent(clean)}${force ? "?force=1" : ""}`;
+      const res = await fetch(url);
       const json = await res.json();
       if (json.error) {
         setLore(json.error);
@@ -119,9 +129,7 @@ export default function CharacterDetail({ id, onBack }: any) {
   }, [state?.status]);
 
   useEffect(() => {
-    if (data && data.Name) {
-      fetchLore();
-    }
+    // Only fetch lore if explicitly requested to save tokens
   }, [data]);
 
   const handleSaveRaw = async () => {
@@ -141,6 +149,65 @@ export default function CharacterDetail({ id, onBack }: any) {
       setSaveMessage("Invalid JSON format");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!outboxMsg.trim()) return;
+    setSendingMsg(true);
+    setSendFeedback("");
+    try {
+      const res = await fetch(`/api/characters/${id}/send_message`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: outboxMsg })
+      });
+      if (res.ok) {
+        setOutboxMsg("");
+        setSendFeedback("飞鸽传书已送达发件箱！引擎将在下回合唤醒对方。");
+        setTimeout(() => setSendFeedback(""), 5000);
+      } else {
+        setSendFeedback("发送失败！");
+      }
+    } catch (e) {
+      setSendFeedback("发送时出现网络错误");
+    } finally {
+      setSendingMsg(false);
+    }
+  };
+
+  const [generatingAll, setGeneratingAll] = useState(false);
+
+  const handleGenerateAll = async () => {
+    setGeneratingAll(true);
+    try {
+      await Promise.all([
+        fetchLore(true),
+        handleGeneratePersonality(true)
+      ]);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setGeneratingAll(false);
+    }
+  };
+
+  const handleGeneratePersonality = async (silent = false) => {
+    setGeneratingPersonality(true);
+    try {
+      const res = await fetch(`/api/characters/${id}/generate_personality`, {
+        method: "POST"
+      });
+      if (res.ok) {
+        await fetchData();
+      } else if (!silent) {
+        alert("生成失败，请检查在服务端是否配置了 GEMINI_API_KEY。");
+      }
+    } catch (e) {
+      console.error(e);
+      if (!silent) alert("网络请求失败");
+    } finally {
+      setGeneratingPersonality(false);
     }
   };
 
@@ -224,6 +291,25 @@ export default function CharacterDetail({ id, onBack }: any) {
         </div>
         
         <div className="flex items-center space-x-3">
+           <button
+             onClick={handleGenerateAll}
+             disabled={generatingAll || generatingPersonality || loreLoading}
+             className="px-3 py-1.5 flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm disabled:opacity-50"
+             title="一键补全所有缺失学士档案和 AI 精神内核 (Generate All)"
+           >
+             {generatingAll ? <Loader size={14} className="animate-spin" /> : <Sparkles size={14} />}
+             <span className="hidden sm:inline">撰写领主志 (Generate All)</span>
+           </button>
+           
+           <button 
+             onClick={() => setSettingsOpen(true)}
+             className="px-3 py-1.5 flex items-center gap-1.5 bg-stone-200 hover:bg-stone-300 text-stone-700 text-sm font-medium rounded-lg transition-colors border border-stone-300"
+             title="配置学士院与人设补齐的 API (Citadel Settings)"
+           >
+             <Settings size={14} />
+             <span className="hidden sm:inline">Settings</span>
+           </button>
+           
            {saveMessage && (
              <span className={`text-xs font-medium px-3 py-1 rounded border animate-pulse ${saveMessage.includes("Invalid") || saveMessage.includes("Failed") ? "bg-rose-50 border-rose-200 text-rose-700" : "bg-emerald-50 border-emerald-200 text-emerald-800"}`}>
                {saveMessage}
@@ -263,7 +349,7 @@ export default function CharacterDetail({ id, onBack }: any) {
             
             {/* Maester's Report Stats Grid */}
             
-            {state?.status === "pending_prompt" && promptDiff && (
+            {state?.status === "pending_prompt" && (
               <div className="bg-amber-50 border border-amber-300 rounded-xl p-5 mb-6 shadow-sm">
                  <div className="flex items-center space-x-2 text-amber-900 mb-3">
                    <Shield size={20} className="text-amber-600" />
@@ -272,6 +358,12 @@ export default function CharacterDetail({ id, onBack }: any) {
                  <p className="text-sm text-amber-800 mb-4 leading-relaxed font-serif">
                    由于领主设定的静态部分发生了变动，本次推演将无法命中全局前置缓存。为了防止昂贵的失控重计算，系统已暂停该领主的引擎循环。请核对变动，若确认无误，请点击「核准发送」。修改下方的“原著考据(Lore)”或“极密文档(Secrets)”会直接引发此类变动。
                  </p>
+                 {!promptDiff ? (
+                    <div className="bg-stone-50 border border-stone-200 p-4 rounded-lg mb-4 text-stone-500 text-sm flex items-center justify-between">
+                       <span>{diffLoading ? "正在拉取比对数据..." : "无法自动拉取变更数据，可能是因为缓存文件已被消费或是读取失败。"}</span>
+                       <button onClick={fetchPromptDiff} disabled={diffLoading} className="text-amber-700 hover:text-amber-900 px-3 py-1 bg-amber-200 hover:bg-amber-300 rounded-md transition-colors disabled:opacity-50">尝试重新拉取</button>
+                    </div>
+                 ) : (
                  <div className="grid grid-cols-2 gap-4 mb-4">
                     <div className="bg-white border border-stone-200 rounded p-3 text-xs overflow-auto max-h-40 font-mono text-stone-600">
                       <div className="font-bold text-stone-400 mb-1">=== 上一次成功的缓存基底 ===</div>
@@ -282,6 +374,7 @@ export default function CharacterDetail({ id, onBack }: any) {
                       {promptDiff.new}
                     </div>
                  </div>
+                 )}
                  <div className="flex justify-end">
                     <button 
                       onClick={handleApproveDiff}
@@ -289,7 +382,7 @@ export default function CharacterDetail({ id, onBack }: any) {
                       className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-amber-50 rounded-lg text-sm font-medium flex items-center transition-colors shadow-sm disabled:opacity-50"
                     >
                       {diffSaving ? <Loader size={16} className="animate-spin mr-2" /> : <Save size={16} className="mr-2" />}
-                      确认无误，核准发送 (Approve & Resume)
+                      {promptDiff ? "确认无误，核准发送 (Approve & Resume)" : "强制解除挂起 (Force Resume)"}
                     </button>
                  </div>
               </div>
@@ -308,7 +401,21 @@ export default function CharacterDetail({ id, onBack }: any) {
               <div className="md:col-span-7 space-y-6">
                 
                 {/* Genuine ASOIAF Lore Scroll */}
-                <Section title="大十字学士原著考据 (Citadel True Lore)" icon={<BookOpen size={18} className="text-stone-800" />}>
+                <Section 
+                  title="大十字学士原著考据 (Citadel True Lore)" 
+                  icon={<BookOpen size={18} className="text-stone-800" />}
+                  action={
+                    <button
+                      onClick={() => fetchLore(true)}
+                      disabled={loreLoading || loreEditing}
+                      className="flex items-center space-x-1.5 text-xs font-sans font-medium px-3 py-1 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-lg transition-colors border border-amber-300 disabled:opacity-50"
+                      title="强制重新生成考据"
+                    >
+                      {loreLoading ? <Loader size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                      <span>重新考据 (Regenerate)</span>
+                    </button>
+                  }
+                >
                   <div className="bg-[#fcfaf2] p-5 rounded-xl border border-stone-300/85 shadow-sm relative overflow-hidden">
                     <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-amber-100/30 to-transparent rounded-bl-full pointer-events-none" />
                     
@@ -425,11 +532,24 @@ export default function CharacterDetail({ id, onBack }: any) {
                 </Section>
 
                 {/* AI Core State Area */}
-                <Section title="领主精神内核 (AI Legacy Mind)" icon={<Brain size={18} className="text-stone-800" />}>
+                <Section 
+                  title="领主精神内核 (AI Legacy Mind)" 
+                  icon={<Brain size={18} className="text-stone-800" />}
+                  action={
+                    <button
+                      onClick={handleGeneratePersonality}
+                      disabled={generatingPersonality}
+                      className="flex items-center space-x-1.5 text-xs font-sans font-medium px-3 py-1 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-lg transition-colors border border-amber-300 disabled:opacity-50"
+                    >
+                      {generatingPersonality ? <Loader size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                      <span>{data.AIGeneratedPersonality ? '重新编织设定 (Regenerate)' : '撰写初始人设 (Generate)'}</span>
+                    </button>
+                  }
+                >
                   <div className="space-y-4">
-                    <TextBlock label="长期本源人格设定 (AIGeneratedPersonality)" content={data.AIGeneratedPersonality} />
-                    <TextBlock label="宿命转折与底层记忆 (AIGeneratedBackstory)" content={data.AIGeneratedBackstory} />
-                    <TextBlock label="言语习惯与口癖 Quirk (AIGeneratedSpeechQuirks)" content={data.AIGeneratedSpeechQuirks} />
+                    <TextBlock label="长期本源人格设定 (AIGeneratedPersonality)" content={data.AIGeneratedPersonality || <span className="text-stone-400 italic">空缺...(Empty) 点击上方按钮呼叫学士院。</span>} />
+                    <TextBlock label="宿命转折与底层记忆 (AIGeneratedBackstory)" content={data.AIGeneratedBackstory || <span className="text-stone-400 italic">空缺...(Empty)</span>} />
+                    <TextBlock label="言语习惯与口癖 Quirk (AIGeneratedSpeechQuirks)" content={data.AIGeneratedSpeechQuirks || <span className="text-stone-400 italic">空缺...(Empty)</span>} />
                   </div>
                 </Section>
                 
@@ -452,16 +572,42 @@ export default function CharacterDetail({ id, onBack }: any) {
 
                 {/* Monologue / Ravens Log from game interactions */}
                 <Section title="思维波 / 飞鸽渡鸦密信 (Chronicle Logs)" icon={<History size={18} className="text-stone-800" />}>
-                  <div className="bg-white border border-stone-300 rounded-xl max-h-[640px] overflow-y-auto shadow-sm">
+                  {/* Send Raven UI */}
+                  <div className="mb-4 bg-stone-50 p-4 rounded-xl border border-stone-200">
+                    <div className="flex items-center justify-between mb-2">
+                       <span className="text-sm font-semibold text-stone-700">发送渡鸦传书 (Send Raven)</span>
+                       {sendFeedback && <span className="text-xs text-amber-600 font-medium">{sendFeedback}</span>}
+                    </div>
+                    <textarea 
+                      value={outboxMsg}
+                      onChange={e => setOutboxMsg(e.target.value)}
+                      placeholder="写下你想对TA说的话..."
+                      className="w-full text-sm p-3 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 outline-none font-serif min-h-[80px]"
+                    />
+                    <div className="mt-2 text-right">
+                       <button
+                         onClick={handleSendMessage}
+                         disabled={sendingMsg || !outboxMsg.trim()}
+                         className="px-4 py-1.5 bg-stone-800 text-stone-100 text-sm rounded-lg hover:bg-stone-700 disabled:opacity-50 transition border border-stone-900 shadow-sm"
+                       >
+                         {sendingMsg ? "发送中 (Sending...)" : "放飞渡鸦 (Send)"}
+                       </button>
+                    </div>
+                  </div>
+
+                  <div className="bg-white border border-stone-300 rounded-xl max-h-[500px] overflow-y-auto shadow-sm">
                     {(!data.ConversationHistory || data.ConversationHistory.length === 0) ? (
                       <div className="p-8 text-center text-stone-400 font-serif italic text-sm">尚无静思思考。该领主需要被引擎激活。</div>
                     ) : (
                       <div className="divide-y divide-stone-100 font-serif">
                         {data.ConversationHistory.slice().reverse().map((entry: string, idx: number) => {
                           const isLetter = entry.includes("PLAYER_LETTER") || entry.toLowerCase().includes("致我") || entry.toLowerCase().includes("盟友");
+                          const isOutgoing = entry.includes("[收到来信]") || entry.toLowerCase().includes("致：") || (entry.includes("发送给") && !entry.includes(`${data.Name} 发送`));
+
                           return (
-                            <div key={idx} className={`p-4 hover:bg-stone-50 transition-colors ${isLetter ? "bg-[#fcfaf2]/60" : ""}`}>
-                              {isLetter && <div className="text-[10px] uppercase font-display font-semibold tracking-wider text-amber-800 mb-1">📬 寄往外界的渡鸦密函</div>}
+                            <div key={idx} className={`p-4 hover:bg-stone-50 transition-colors ${(isLetter && !isOutgoing) ? "bg-[#fcfaf2]/60" : ""} ${isOutgoing ? "bg-stone-50" : ""}`}>
+                              {isLetter && !isOutgoing && <div className="text-[10px] uppercase font-display font-semibold tracking-wider text-amber-800 mb-1">📬 寄往外界的渡鸦密函</div>}
+                              {isOutgoing && <div className="text-[10px] uppercase font-display font-semibold tracking-wider text-stone-500 mb-1">🕊️ 你送出的渡鸦传书</div>}
                               <p className="text-sm text-stone-800 leading-relaxed whitespace-pre-wrap">{entry.replace(/\[sent_via_.*?\]/g, "").trim()}</p>
                             </div>
                           );
@@ -478,6 +624,13 @@ export default function CharacterDetail({ id, onBack }: any) {
           </div>
         )}
       </div>
+
+      <ApiSettingsModal
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        featureKey="utils"
+        title="学士院与自动人设 (Citadel)"
+      />
     </div>
   );
 }
@@ -495,12 +648,15 @@ function StatCard({ icon, title, value, subtitle }: any) {
   );
 }
 
-function Section({ title, icon, children }: any) {
+function Section({ title, icon, children, action }: any) {
   return (
     <div>
-      <div className="flex items-center space-x-2 mb-3">
-        {icon}
-        <h3 className="text-sm font-display font-bold text-stone-900 tracking-wider uppercase">{title}</h3>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center space-x-2">
+          {icon}
+          <h3 className="text-sm font-display font-bold text-stone-900 tracking-wider uppercase">{title}</h3>
+        </div>
+        {action && <div>{action}</div>}
       </div>
       {children}
     </div>

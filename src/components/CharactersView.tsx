@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Search, Shield, MapPin, Brain } from "lucide-react";
+import { Search, Shield, MapPin, Brain, Sparkles, Loader } from "lucide-react";
 import CharacterDetail from "./CharacterDetailView";
 
 export default function CharactersView() {
@@ -7,6 +7,8 @@ export default function CharactersView() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [genStatus, setGenStatus] = useState("");
 
   const fetchCharacters = async () => {
     try {
@@ -31,6 +33,8 @@ export default function CharactersView() {
     c.name.toLowerCase().includes(search.toLowerCase()) || 
     c.id.toLowerCase().includes(search.toLowerCase())
   );
+  
+  const missingPersonality = characters.filter(c => !c.hasPersonality);
 
   if (selectedId) {
     return (
@@ -60,7 +64,9 @@ export default function CharactersView() {
       {/* Search Header Container */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-stone-50 px-6 py-5 rounded-2xl shadow-sm border border-stone-200 gap-4">
         <div>
-           <h3 className="text-xl font-display font-bold text-stone-900 tracking-tight">维斯特洛领主志 (Westeros Dignitaries Roll)</h3>
+           <h3 className="text-xl font-display font-bold text-stone-900 tracking-tight flex items-center gap-3">
+             维斯特洛领主志 (Westeros Dignitaries Roll)
+           </h3>
            <p className="text-sm text-stone-500 mt-1">
              在当前推演沙盒中发现了 <span className="font-bold text-stone-700">{characters.length}</span> 位受洗礼的领主与子民。
            </p>
@@ -116,9 +122,12 @@ export default function CharactersView() {
               </div>
               
               {char.status === "pending_prompt" && (
-                 <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-2 flex items-center justify-center animate-pulse">
-                   <Shield size={12} className="text-amber-600 mr-1.5" />
-                   <span className="text-xs font-semibold text-amber-800">警示：提示词前缀变动</span>
+                 <div className="mt-3 bg-amber-50 border border-amber-300 rounded-lg p-2.5 flex items-center justify-between shadow-sm">
+                   <div className="flex items-center text-amber-900 animate-pulse">
+                     <Shield size={14} className="text-amber-600 mr-1.5" />
+                     <span className="text-xs font-bold font-serif">提示词设定变动待确认</span>
+                   </div>
+                   <span className="text-[10px] bg-amber-600 text-white px-2 py-1 rounded font-medium shadow-sm active:bg-amber-700">处理</span>
                  </div>
               )}
             </button>

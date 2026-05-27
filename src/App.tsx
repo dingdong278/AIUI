@@ -48,7 +48,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f5f1e8] text-stone-800 font-sans flex flex-col md:flex-row antialiased select-none">
+    <div className="min-h-screen bg-[#f5f1e8] text-stone-800 font-sans flex flex-col md:flex-row antialiased">
       
       {/* Maester Sidebar */}
       <aside className="w-full md:w-64 bg-stone-900 text-stone-300 flex flex-col shadow-2xl z-10 border-r border-stone-950">

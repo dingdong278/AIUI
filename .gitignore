@@ -1,0 +1,13 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+engine_state.json
+logs/
+save_data/
+E:\\*
+E:*/
